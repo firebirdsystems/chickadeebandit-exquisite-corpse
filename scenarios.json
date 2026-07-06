@@ -1,0 +1,89 @@
+{
+  "scenarios": [
+    {
+      "name": "segments stay sealed from other artists until the host reveals",
+      "members": { "host": "adult", "other": "adult" },
+      "steps": [
+        { "action": "db", "as": "host",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, turn_order, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', ?, 300, ?, 'Host', ?, 0)",
+          "params": ["r1", "Beast", "[\"{{host}}\",\"{{other}}\"]", "{{host}}", "2026-01-01T00:00:00Z"],
+          "expect": { "status": 200 } },
+
+        { "action": "db", "as": "host",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, 'Host', 0, '', ?, ?)",
+          "params": ["s1", "r1", "{{host}}", "https://files/x.png", "2026-01-01T00:01:00Z"],
+          "expect": { "status": 200 } },
+
+        { "action": "db", "as": "host",
+          "sql": "SELECT id FROM app_exquisite_corpse__segments WHERE round_id = ?",
+          "params": ["r1"],
+          "expect": { "status": 200, "rowCount": 1 } },
+
+        { "action": "db", "as": "other",
+          "sql": "SELECT id FROM app_exquisite_corpse__segments WHERE round_id = ?",
+          "params": ["r1"],
+          "expect": { "status": 200, "rowCount": 0 } },
+
+        { "action": "db", "as": "other",
+          "sql": "UPDATE app_exquisite_corpse__rounds SET status = 'revealed' WHERE id = ?",
+          "params": ["r1"],
+          "expect": { "status": 200 } },
+
+        { "action": "db", "as": "other",
+          "sql": "SELECT id FROM app_exquisite_corpse__segments WHERE round_id = ?",
+          "params": ["r1"],
+          "expect": { "status": 200, "rowCount": 0 } },
+
+        { "action": "db", "as": "host",
+          "sql": "UPDATE app_exquisite_corpse__rounds SET status = 'revealed', revealed_at = ? WHERE id = ?",
+          "params": ["2026-01-01T00:05:00Z", "r1"],
+          "expect": { "status": 200 } },
+
+        { "action": "db", "as": "other",
+          "sql": "SELECT id FROM app_exquisite_corpse__segments WHERE round_id = ?",
+          "params": ["r1"],
+          "expect": { "status": 200, "rowCount": 1 } }
+      ]
+    },
+    {
+      "name": "an artist may only submit one panel per round",
+      "members": { "host": "adult" },
+      "steps": [
+        { "action": "db", "as": "host",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, turn_order, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', ?, 300, ?, 'Host', ?, 0)",
+          "params": ["r2", "Beast", "[\"{{host}}\"]", "{{host}}", "2026-01-01T00:00:00Z"],
+          "expect": { "status": 200 } },
+
+        { "action": "db", "as": "host",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, 'Host', 0, '', ?, ?)",
+          "params": ["s2a", "r2", "{{host}}", "https://files/a.png", "2026-01-01T00:01:00Z"],
+          "expect": { "status": 200 } },
+
+        { "action": "db", "as": "host",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, 'Host', 0, '', ?, ?)",
+          "params": ["s2b", "r2", "{{host}}", "https://files/b.png", "2026-01-01T00:02:00Z"],
+          "expect": { "status": 403 } }
+      ]
+    },
+    {
+      "name": "the hand-off connectors are shared with other artists while the round is open",
+      "members": { "host": "adult", "other": "adult" },
+      "steps": [
+        { "action": "db", "as": "host",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, turn_order, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', ?, 300, ?, 'Host', ?, 0)",
+          "params": ["r3", "Beast", "[\"{{host}}\",\"{{other}}\"]", "{{host}}", "2026-01-01T00:00:00Z"],
+          "expect": { "status": 200 } },
+
+        { "action": "db", "as": "host",
+          "sql": "INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at) VALUES (?, ?, ?, 0, ?, ?)",
+          "params": ["h3", "r3", "{{host}}", "[{\"x\":0.4,\"color\":\"#000\"}]", "2026-01-01T00:01:00Z"],
+          "expect": { "status": 200 } },
+
+        { "action": "db", "as": "other",
+          "sql": "SELECT id FROM app_exquisite_corpse__handoffs WHERE round_id = ?",
+          "params": ["r3"],
+          "expect": { "status": 200, "rowCount": 1 } }
+      ]
+    }
+  ]
+}

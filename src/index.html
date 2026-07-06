@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exquisite Corpse</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: var(--hub-bg, #f9fafb);
+      --surface: var(--hub-surface, #ffffff);
+      --border: var(--hub-border, #e5e7eb);
+      --border-mid: var(--hub-border, #d1d5db);
+      --text: var(--hub-text, #111827);
+      --muted: var(--hub-text-muted, #6b7280);
+      --accent: var(--hub-primary, #6d28d9);
+      --accent-hover: var(--hub-primary-hover, #5b21b6);
+      --accent-fg: var(--hub-primary-fg, #ffffff);
+      --radius: var(--hub-radius, 10px);
+      --green: #047857;
+      --green-soft: #d1fae5;
+      --amber: #b45309;
+      --amber-soft: #fef3c7;
+      --red: #b91c1c;
+      --red-soft: #fee2e2;
+      --violet-soft: #ede9fe;
+      --shadow: 0 1px 3px rgba(15, 23, 42, .07);
+    }
+    body {
+      min-height: 100vh; background: var(--bg); color: var(--text);
+      font-family: var(--hub-font, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+      font-size: var(--hub-font-size, 15px); line-height: 1.5;
+    }
+    .app { max-width: 720px; margin: 0 auto; padding: 16px; }
+    .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    h1 { font-size: 1.35rem; line-height: 1.2; }
+    h2 { font-size: 1rem; margin-bottom: 10px; }
+    .muted { color: var(--muted); }
+    .tiny { font-size: .78rem; }
+    .stack { display: grid; gap: 12px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px;
+    }
+    .round-card { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+    .round-card:hover { border-color: var(--accent); box-shadow: 0 5px 14px rgba(15, 23, 42, .08); }
+    .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .title { font-weight: 750; font-size: 1rem; }
+    .meta { margin-top: 3px; color: var(--muted); font-size: .82rem; }
+    .progress { height: 8px; overflow: hidden; border-radius: 999px; background: #eef2f7; margin-top: 10px; }
+    .progress > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .2s; }
+    .pill {
+      display: inline-flex; align-items: center; justify-content: center; min-height: 24px;
+      padding: 2px 9px; border-radius: 999px; background: #f1f5f9; color: var(--muted);
+      font-size: .74rem; font-weight: 700; white-space: nowrap;
+    }
+    .pill.good { background: var(--green-soft); color: var(--green); }
+    .pill.warn { background: var(--amber-soft); color: var(--amber); }
+    .pill.info { background: var(--violet-soft); color: var(--accent); }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 2px 10px; }
+    .section-head h2 { margin-bottom: 0; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      border: 1px solid transparent; border-radius: 8px; padding: 8px 12px;
+      font: inherit; font-size: .86rem; font-weight: 700; cursor: pointer;
+      min-height: 38px; background: var(--accent); color: var(--accent-fg);
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn:disabled { opacity: .48; cursor: default; }
+    .btn-ghost { background: transparent; color: var(--text); border-color: var(--border-mid); }
+    .btn-ghost:hover { background: #f8fafc; }
+    .btn-danger { background: var(--red-soft); color: var(--red); border-color: transparent; }
+    .btn-danger:hover { background: #fecaca; }
+    .btn-quiet { min-height: 28px; padding: 3px 8px; background: transparent; color: var(--muted); border: 0; font-size: .76rem; font-weight: 700; }
+    .btn-quiet:hover { color: var(--text); }
+    .btn-sm { min-height: 31px; padding: 5px 9px; font-size: .78rem; }
+    .back { margin-bottom: 10px; }
+    .form { display: grid; gap: 12px; }
+    .field { display: grid; gap: 4px; }
+    label { font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 800; }
+    input, textarea {
+      width: 100%; border: 1.5px solid var(--border-mid); border-radius: 8px;
+      padding: 9px 11px; font: inherit; background: var(--surface); color: var(--text);
+    }
+    textarea { min-height: 60px; resize: vertical; }
+    input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    .members { display: grid; gap: 6px; }
+    .member-pick {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+      border: 1.5px solid var(--border); border-radius: 8px; cursor: pointer;
+    }
+    .member-pick input { width: auto; }
+    .roster { display: grid; gap: 6px; }
+    .roster-row { display: flex; align-items: center; gap: 8px; font-size: .86rem; }
+    .roster-row.now { font-weight: 750; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border-mid); flex: none; }
+    .dot.done { background: var(--green); }
+    .dot.now { background: var(--accent); box-shadow: 0 0 0 3px var(--violet-soft); }
+    .avatar {
+      width: 26px; height: 26px; border-radius: 50%; display: inline-flex;
+      align-items: center; justify-content: center; color: #fff; font-size: .72rem; font-weight: 800; flex: none;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .empty, .loading { color: var(--muted); text-align: center; padding: 32px 16px; }
+    .error { background: var(--red-soft); color: var(--red); padding: 9px 12px; border-radius: 8px; margin-bottom: 10px; font-size: .86rem; }
+    .notice { background: var(--amber-soft); color: var(--amber); padding: 9px 12px; border-radius: 8px; margin-bottom: 10px; font-size: .86rem; }
+    .canvas-wrap { border: 1.5px solid var(--border-mid); border-radius: 10px; overflow: hidden; background: #fff; touch-action: none; }
+    canvas { display: block; width: 100%; touch-action: none; cursor: crosshair; }
+    .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+    .swatches { display: flex; gap: 6px; }
+    .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0; }
+    .swatch.on { border-color: var(--text); transform: scale(1.12); }
+    .sizes { display: flex; gap: 6px; }
+    .size-btn { width: 34px; height: 30px; border: 1.5px solid var(--border-mid); border-radius: 8px; background: var(--surface); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .size-btn.on { border-color: var(--accent); background: var(--violet-soft); }
+    .size-dot { border-radius: 50%; background: var(--text); }
+    .gallery { display: grid; gap: 0; border: 1.5px solid var(--border); border-radius: 10px; overflow: hidden; background: #fff; }
+    .panel { border-top: 1px dashed var(--border); }
+    .panel:first-child { border-top: 0; }
+    .panel img { display: block; width: 100%; }
+    .panel-by { font-size: .72rem; color: var(--muted); padding: 4px 8px; background: #fafafa; }
+    .hint { background: var(--violet-soft); color: var(--accent); padding: 10px 12px; border-radius: 8px; font-size: .84rem; }
+    @media (max-width: 560px) {
+      .topbar, .head { align-items: stretch; flex-direction: column; }
+      .actions .btn { flex: 1; }
+    }
+  </style>
+  <base href="/run/exquisite-corpse/">
+</head>
+<body>
+<div class="app">
+  <div id="root" class="loading">Loading…</div>
+</div>
+
+<script type="module">
+import { esc, isAdult, memberColor, initial, hubConfirm, hubAlert, createFilesHelper, sendHubNotification, hubAppUrl } from "/hub-sdk.js";
+import {
+  parseOrder, orderedSegments, deriveTurn, mySegment, isParticipant,
+  canSubmit as _canSubmit, positionFor, canManageRound as _canManage,
+  canReveal as _canReveal, computeConnectors,
+} from "./logic.js";
+
+const CONTEXT    = window.__CONTEXT_URL ?? "";
+const DB         = window.__DB_URL ?? "";
+const FILES_URL  = window.__FILES_URL ?? "";
+const ME         = window.__CURRENT_MEMBER ?? null;
+const APP_ID     = window.__APP_ID ?? "exquisite-corpse";
+const EVENTS_URL = window.__EVENTS_URL ?? "/api/events";
+const files      = createFilesHelper(FILES_URL);
+
+const PALETTE = ["#111827", "#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#2563eb", "#7c3aed", "#db2777"];
+const SIZES   = [3, 6, 12];
+const BAND    = 26; // px above the bottom edge treated as the hand-off seam
+
+let members = [];
+let memberMap = new Map();
+let currentMember = null;
+let rounds = [];
+let segments = [];
+let handoffs = [];
+let selectedRoundId = null;
+let view = "list";
+let showArchived = false;
+let error = "";
+let notice = "";
+
+// drawing state
+let strokes = [];
+let activeStroke = null;
+let tool = "pen"; // "pen" | "eraser"
+let penColor = PALETTE[0];
+let penSize = SIZES[1];
+let canvasRoundKey = null; // resets strokes when switching canvases
+
+// thin wrappers binding pure logic to the current member
+function canSubmit(round) { return _canSubmit(round, segments, currentMember); }
+function canManageRound(round) { return _canManage(round, currentMember); }
+function canReveal(round) { return _canReveal(round, segments, currentMember); }
+
+function nowIso() { return new Date().toISOString(); }
+function uid(prefix) { return `${prefix}-${crypto.randomUUID()}`; }
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function fmtWhen(v) {
+  if (!v) return "";
+  try { return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(v)); }
+  catch { return ""; }
+}
+function memberName(id) { return memberMap.get(id)?.name ?? "Someone"; }
+function selectedRound() { return rounds.find((r) => r.id === selectedRoundId) ?? null; }
+function roundSegments(id) { return orderedSegments(segments, id); }
+
+async function dbq(sql, params = []) {
+  if (!DB) return { rows: [] };
+  const res = await fetch(DB, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sql, params }),
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+
+async function loadMembers() {
+  if (!CONTEXT) {
+    members = [
+      { id: "demo-1", name: "Alex", role: "adult" },
+      { id: "demo-2", name: "Jordan", role: "adult" },
+      { id: "demo-3", name: "Casey", role: "child" },
+      { id: "demo-4", name: "Riley", role: "child" },
+    ];
+  } else {
+    try {
+      const res = await fetch(`${CONTEXT}?keys=family.members`);
+      members = ((await res.json())["family.members"]) ?? [];
+    } catch { members = []; }
+  }
+  memberMap = new Map(members.map((m) => [m.id, m]));
+  currentMember = ME ?? members[0] ?? { id: "guest", name: "Guest", role: "adult" };
+}
+
+function seedDemo() {
+  const rid = "demo-round";
+  rounds = [{
+    id: rid, title: "The Beast of Maple Street", theme: "A creature nobody has seen",
+    visibility: "everyone", status: "open",
+    turn_order: JSON.stringify(["demo-1", "demo-3", "demo-2", "demo-4"]),
+    panel_height: 300, created_by_id: "demo-1", created_by_name: "Alex",
+    created_at: nowIso(), revealed_at: null, archived: 0,
+  }];
+  // Alex (demo-1) already drew the head; current turn is Casey (demo-3).
+  segments = [{
+    id: "demo-seg-1", round_id: rid, member_id: "demo-1", member_name: "Alex",
+    position: 0, file_id: "", file_url: placeholderPanel("Head", "#ede9fe"), created_at: nowIso(),
+  }];
+  handoffs = [{
+    id: "demo-ho-1", round_id: rid, member_id: "demo-1", position: 0,
+    connectors: JSON.stringify([{ x: 0.35, color: "#7c3aed" }, { x: 0.62, color: "#7c3aed" }]),
+    created_at: nowIso(),
+  }];
+}
+
+function placeholderPanel(label, bg) {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='600' height='300'><rect width='600' height='300' fill='${bg}'/><text x='300' y='155' font-family='sans-serif' font-size='28' fill='#6d28d9' text-anchor='middle'>${label}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+async function loadData() {
+  if (!DB) { if (!rounds.length) seedDemo(); return; }
+  const [r, s, h] = await Promise.all([
+    dbq("SELECT * FROM app_exquisite_corpse__rounds WHERE archived = ? ORDER BY created_at DESC", [showArchived ? 1 : 0]),
+    dbq("SELECT * FROM app_exquisite_corpse__segments ORDER BY position ASC, created_at ASC"),
+    dbq("SELECT * FROM app_exquisite_corpse__handoffs ORDER BY position ASC"),
+  ]);
+  rounds = r.rows;
+  segments = s.rows;
+  handoffs = h.rows;
+}
+
+async function refresh() {
+  clearMessages();
+  try {
+    await loadMembers();
+    await loadData();
+    if (selectedRoundId && !rounds.some((r) => r.id === selectedRoundId)) selectedRoundId = null;
+    render();
+  } catch (e) {
+    error = e.message; render();
+  }
+}
+
+function clearMessages() { error = ""; notice = ""; }
+function showError(m) { error = m; notice = ""; render(); }
+function showNotice(m) { notice = m; error = ""; render(); }
+
+// ── Mutations ─────────────────────────────────────────────────────────────────
+async function createRound(form) {
+  const title = form.title.value.trim();
+  const theme = form.theme.value.trim();
+  const picked = new Set([...form.querySelectorAll("input[name='participant']:checked")].map((i) => i.value));
+  // The host always draws first; everyone else is passed the drawing in a
+  // random order so it isn't the same line-up every time.
+  const others = shuffle(members.filter((m) => m.id !== currentMember.id && picked.has(m.id)).map((m) => m.id));
+  const order = [currentMember.id, ...others];
+  if (!title) return showError("Give your drawing a title.");
+  if (order.length < 2) return showError("Pick at least one other artist to pass the drawing to.");
+
+  const round = {
+    id: uid("round"), title, theme, visibility: "everyone", status: "open",
+    turn_order: JSON.stringify(order), panel_height: 300,
+    created_by_id: currentMember.id, created_by_name: currentMember.name,
+    created_at: nowIso(), revealed_at: null, archived: 0,
+  };
+  try {
+    await dbq(
+      `INSERT INTO app_exquisite_corpse__rounds
+         (id, title, theme, visibility, status, turn_order, panel_height, created_by_id, created_by_name, created_at, archived)
+       VALUES (?, ?, ?, 'everyone', 'open', ?, ?, ?, ?, ?, 0)`,
+      [round.id, round.title, round.theme, round.turn_order, round.panel_height, round.created_by_id, round.created_by_name, round.created_at]
+    );
+    rounds = [round, ...rounds];
+    selectedRoundId = round.id;
+    view = "list";
+    showNotice("Drawing started — first artist is up.");
+    const first = order[0];
+    publish("exquisite_corpse.round_created", round.id, { title });
+    if (first && first !== currentMember.id) {
+      notify([first], `You're up: ${title}`, `${currentMember.name} started a drawing and it's your turn to begin.`, round.id);
+    }
+  } catch (e) { showError(e.message); }
+}
+
+async function submitSegment() {
+  const round = selectedRound();
+  if (!round || !canSubmit(round)) return showError("It isn't your turn right now.");
+  const canvas = document.getElementById("draw");
+  if (!canvas) return;
+  if (!strokes.length) return showError("Draw something before passing it on.");
+
+  const pos = positionFor(round, currentMember);
+  const connectors = computeConnectors(strokes, canvas.clientWidth, round.panel_height, BAND);
+  const btn = document.getElementById("submit-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Passing it on…"; }
+
+  try {
+    let fileId = "";
+    let fileUrl;
+    if (FILES_URL) {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Could not capture the drawing.");
+      const up = await files.upload(new File([blob], `${round.id}-${pos}.png`, { type: "image/png" }));
+      fileId = up.id; fileUrl = up.url;
+    } else {
+      fileUrl = canvas.toDataURL("image/png"); // demo mode
+    }
+
+    const seg = {
+      id: uid("seg"), round_id: round.id, member_id: currentMember.id, member_name: currentMember.name,
+      position: pos, file_id: fileId, file_url: fileUrl, created_at: nowIso(),
+    };
+    const ho = {
+      id: uid("ho"), round_id: round.id, member_id: currentMember.id, position: pos,
+      connectors: JSON.stringify(connectors), created_at: nowIso(),
+    };
+    if (DB) {
+      await dbq(
+        `INSERT INTO app_exquisite_corpse__segments
+           (id, round_id, member_id, member_name, position, file_id, file_url, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [seg.id, seg.round_id, seg.member_id, seg.member_name, seg.position, seg.file_id, seg.file_url, seg.created_at]
+      );
+      await dbq(
+        `INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [ho.id, ho.round_id, ho.member_id, ho.position, ho.connectors, ho.created_at]
+      );
+    }
+    segments = [...segments, seg];
+    handoffs = [...handoffs, ho];
+    strokes = [];
+    canvasRoundKey = null;
+
+    const turn = deriveTurn(round, segments);
+    publish("exquisite_corpse.segment_added", round.id, { position: pos });
+    if (turn.complete) {
+      showNotice("Your panel is in — every artist has drawn. The host can reveal it now!");
+      if (round.created_by_id !== currentMember.id) {
+        notify([round.created_by_id], `Ready to reveal: ${round.title}`, "Every artist has drawn their panel. Tap to reveal the finished piece.", round.id);
+      }
+    } else {
+      showNotice("Your panel is sealed and passed on.");
+      if (turn.currentMemberId) {
+        notify([turn.currentMemberId], `Your turn: ${round.title}`, `${currentMember.name} passed the drawing to you.`, round.id);
+      }
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = "Submit & pass on"; }
+    showError(e.message);
+  }
+}
+
+async function revealRound(roundId) {
+  const round = rounds.find((r) => r.id === roundId);
+  if (!round || !canManageRound(round)) return showError("Only the host can reveal this drawing.");
+  const turn = deriveTurn(round, segments);
+  const ok = await hubConfirm({
+    message: turn.complete ? "Reveal the finished drawing?" : "Reveal now, before everyone has drawn?",
+    description: turn.complete
+      ? "Every artist's panel will be shown to the whole household at once."
+      : `Only ${turn.done} of ${turn.total} artists have drawn. Unfinished panels will simply be missing.`,
+    confirmLabel: "Reveal",
+    destructive: !turn.complete,
+  });
+  if (!ok) return;
+  try {
+    const at = nowIso();
+    if (DB) await dbq("UPDATE app_exquisite_corpse__rounds SET status = 'revealed', revealed_at = ? WHERE id = ?", [at, roundId]);
+    const idx = rounds.findIndex((r) => r.id === roundId);
+    if (idx !== -1) rounds[idx] = { ...rounds[idx], status: "revealed", revealed_at: at };
+    showNotice("Revealed! Behold the exquisite corpse.");
+    publish("exquisite_corpse.round_revealed", roundId, { title: round.title });
+    const audience = parseOrder(round).filter((id) => id !== currentMember.id);
+    if (audience.length) notify(audience, `Revealed: ${round.title}`, "The collaborative drawing is complete — come see it!", roundId);
+  } catch (e) { showError(e.message); }
+}
+
+async function archiveRound(roundId) {
+  const round = rounds.find((r) => r.id === roundId);
+  if (!round || !canManageRound(round)) return showError("Only the host can archive this drawing.");
+  const ok = await hubConfirm({
+    message: "Archive this drawing?",
+    description: "It moves to the archived list. Nothing is deleted.",
+    confirmLabel: "Archive", destructive: true,
+  });
+  if (!ok) return;
+  try {
+    if (DB) await dbq("UPDATE app_exquisite_corpse__rounds SET archived = 1 WHERE id = ?", [roundId]);
+    rounds = rounds.filter((r) => r.id !== roundId);
+    selectedRoundId = null;
+    showNotice("Drawing archived.");
+  } catch (e) { showError(e.message); }
+}
+
+function publish(type, subjectId, payload) {
+  fetch(EVENTS_URL, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source_app_id: APP_ID, type, subject_id: subjectId, payload }),
+  }).catch(() => {});
+}
+
+function notify(audience, title, body, roundId) {
+  sendHubNotification({ title, body, audience, url: hubAppUrl(APP_ID, { roundId }) }).catch(() => {});
+}
+
+// ── Canvas ────────────────────────────────────────────────────────────────────
+function ghostConnectorsFor(round) {
+  const pos = positionFor(round, currentMember);
+  if (pos <= 0) return [];
+  const prev = handoffs.find((h) => h.round_id === round.id && Number(h.position) === pos - 1);
+  if (!prev) return [];
+  try {
+    const parsed = typeof prev.connectors === "string" ? JSON.parse(prev.connectors) : prev.connectors;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function redrawCanvas(round) {
+  const canvas = document.getElementById("draw");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.clientWidth, h = round.panel_height;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const dpr = window.devicePixelRatio || 1;
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+
+  // ghost hand-off marks from the previous artist along the TOP edge
+  for (const c of ghostConnectorsFor(round)) {
+    const x = Math.min(1, Math.max(0, Number(c.x))) * w;
+    ctx.strokeStyle = c.color || "#a78bfa";
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 16);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  for (const stroke of strokes) drawStroke(ctx, stroke);
+}
+
+function drawStroke(ctx, stroke) {
+  if (!stroke.points.length) return;
+  ctx.strokeStyle = stroke.erase ? "#ffffff" : stroke.color;
+  ctx.lineWidth = stroke.size;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+  for (const p of stroke.points.slice(1)) ctx.lineTo(p.x, p.y);
+  ctx.stroke();
+}
+
+function setupCanvas(round) {
+  const canvas = document.getElementById("draw");
+  if (!canvas) return;
+  const key = `${round.id}:${positionFor(round, currentMember)}`;
+  if (canvasRoundKey !== key) { strokes = []; canvasRoundKey = key; }
+
+  const w = canvas.clientWidth, h = round.panel_height;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.height = `${h}px`;
+  redrawCanvas(round);
+
+  const pos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  canvas.onpointerdown = (e) => {
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    activeStroke = { points: [pos(e)], color: penColor, size: tool === "eraser" ? penSize * 2.4 : penSize, erase: tool === "eraser" };
+    strokes.push(activeStroke);
+    redrawCanvas(round);
+  };
+  canvas.onpointermove = (e) => {
+    if (!activeStroke) return;
+    const p = pos(e);
+    const last = activeStroke.points[activeStroke.points.length - 1];
+    if (Math.hypot(p.x - last.x, p.y - last.y) < 1.4) return;
+    activeStroke.points.push(p);
+    const ctx = canvas.getContext("2d");
+    drawStroke(ctx, activeStroke);
+  };
+  const end = () => { activeStroke = null; };
+  canvas.onpointerup = end;
+  canvas.onpointercancel = end;
+  canvas.onpointerleave = end;
+}
+
+function undoStroke() {
+  const round = selectedRound();
+  if (!strokes.length || !round) return;
+  strokes.pop();
+  redrawCanvas(round);
+}
+function clearCanvas() {
+  const round = selectedRound();
+  strokes = [];
+  if (round) redrawCanvas(round);
+}
+function setTool(t) { tool = t; render(); }
+function setColor(c) { penColor = c; tool = "pen"; render(); }
+function setSize(s) { penSize = s; render(); }
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderMessages() {
+  return `${error ? `<div class="error">${esc(error)}</div>` : ""}${notice ? `<div class="notice">${esc(notice)}</div>` : ""}`;
+}
+
+function statusPill(round) {
+  const turn = deriveTurn(round, segments);
+  if (round.status === "revealed") return `<span class="pill good">Revealed</span>`;
+  if (canSubmit(round)) return `<span class="pill info">Your turn</span>`;
+  return `<span class="pill warn">${turn.done}/${turn.total} drawn</span>`;
+}
+
+function renderRoundCard(round) {
+  const turn = deriveTurn(round, segments);
+  const pct = turn.total ? Math.round((turn.done / turn.total) * 100) : 0;
+  return `
+    <article class="card round-card" data-open="${esc(round.id)}">
+      <div class="head">
+        <div>
+          <div class="title">${esc(round.title)}</div>
+          <div class="meta">${round.theme ? `${esc(round.theme)} · ` : ""}Hosted by ${esc(round.created_by_name)}</div>
+        </div>
+        ${statusPill(round)}
+      </div>
+      ${round.status === "revealed" ? "" : `<div class="progress" aria-hidden="true"><span style="width:${pct}%"></span></div>`}
+    </article>`;
+}
+
+function renderList() {
+  const visible = rounds;
+  return `
+    <div class="topbar">
+      <div>
+        <h1>🎨 Exquisite Corpse</h1>
+        <p class="muted tiny">Draw a panel, pass it on. Nobody sees the whole thing until the big reveal.</p>
+      </div>
+      <button class="btn" data-view-create>Start one</button>
+    </div>
+    ${renderMessages()}
+    <div class="section-head">
+      <h2>${showArchived ? "Archived" : "Drawings"}</h2>
+      <div class="actions">
+        <button class="btn btn-quiet" data-toggle-archived>${showArchived ? "Show active" : "Show archived"}</button>
+        <button class="btn btn-ghost btn-sm" data-refresh>Refresh</button>
+      </div>
+    </div>
+    <section class="stack">
+      ${visible.length ? visible.map(renderRoundCard).join("") : `<div class="card empty">${showArchived ? "Nothing archived." : "No drawings yet — start the first one!"}</div>`}
+    </section>`;
+}
+
+function renderRoster(round) {
+  const turn = deriveTurn(round, segments);
+  const order = parseOrder(round);
+  return `
+    <div class="roster">
+      ${order.map((id, i) => {
+        const done = i < turn.done;
+        const now = i === turn.currentIndex;
+        return `
+          <div class="roster-row ${now ? "now" : ""}">
+            <span class="dot ${done ? "done" : now ? "now" : ""}"></span>
+            <span class="avatar" style="background:${esc(memberColor(id, members))}">${esc(initial(memberName(id)))}</span>
+            <span>${esc(memberName(id))}</span>
+            ${done ? `<span class="pill good tiny">drawn</span>` : now ? `<span class="pill info tiny">drawing now</span>` : ""}
+          </div>`;
+      }).join("")}
+    </div>`;
+}
+
+function renderToolbar() {
+  return `
+    <div class="tools">
+      <div class="swatches">
+        ${PALETTE.map((c) => `<button class="swatch ${tool === "pen" && penColor === c ? "on" : ""}" style="background:${c}" data-color="${c}" aria-label="color"></button>`).join("")}
+      </div>
+      <div class="sizes">
+        ${SIZES.map((s) => `<button class="size-btn ${penSize === s ? "on" : ""}" data-size="${s}"><span class="size-dot" style="width:${s}px;height:${s}px"></span></button>`).join("")}
+      </div>
+      <button class="btn btn-ghost btn-sm ${tool === "eraser" ? "on" : ""}" data-tool="${tool === "eraser" ? "pen" : "eraser"}">${tool === "eraser" ? "Pen" : "Eraser"}</button>
+      <button class="btn btn-ghost btn-sm" data-undo>Undo</button>
+      <button class="btn btn-ghost btn-sm" data-clear>Clear</button>
+    </div>`;
+}
+
+function renderPlay(round) {
+  const turn = deriveTurn(round, segments);
+  const mine = mySegment(segments, round, currentMember);
+  const pos = positionFor(round, currentMember);
+  const iAmParticipant = isParticipant(round, currentMember);
+
+  let body;
+  if (canSubmit(round)) {
+    const ghost = ghostConnectorsFor(round).length;
+    body = `
+      ${pos > 0
+        ? `<div class="hint">You're picking up the drawing. The faint violet ticks at the top show where the previous artist's lines cross over — continue them, then draw the rest of your panel however you like.</div>`
+        : `<div class="hint">You're starting the drawing! When you finish, leave a few lines running off the bottom edge — that's the only clue the next artist gets.</div>`}
+      <div class="canvas-wrap"><canvas id="draw"></canvas></div>
+      ${renderToolbar()}
+      <div class="actions">
+        <button class="btn" id="submit-btn" data-submit>Submit & pass on</button>
+        <span class="muted tiny">${ghost ? "Continue the violet ticks up top." : "Draw freely."}</span>
+      </div>`;
+  } else if (mine) {
+    body = `
+      <div class="hint">Your panel is locked in and sealed — you'll see everyone's work when the host reveals it.</div>
+      <div class="gallery"><div class="panel"><img src="${esc(mine.file_url)}" alt="your panel" /><div class="panel-by">Your panel · position ${Number(mine.position) + 1}</div></div></div>`;
+  } else if (!iAmParticipant) {
+    body = `<div class="empty">You're not one of the artists on this drawing. You'll get to see it once it's revealed.</div>`;
+  } else if (turn.complete) {
+    body = `<div class="empty">Every panel is in. Waiting for ${esc(round.created_by_name)} to reveal the drawing.</div>`;
+  } else {
+    body = `<div class="empty">Not your turn yet — waiting on ${esc(memberName(turn.currentMemberId))}.</div>`;
+  }
+
+  return `
+    <section class="card stack">
+      <div class="head">
+        <div>
+          <h1>${esc(round.title)}</h1>
+          <p class="muted">${round.theme ? `${esc(round.theme)} · ` : ""}${turn.done}/${turn.total} panels drawn</p>
+        </div>
+        <div class="actions">
+          ${canReveal(round) ? `<button class="btn btn-sm" data-reveal="${esc(round.id)}">${turn.complete ? "Reveal" : "Reveal early"}</button>` : ""}
+          ${canManageRound(round) ? `<button class="btn btn-quiet" data-archive="${esc(round.id)}">Archive</button>` : ""}
+        </div>
+      </div>
+      ${renderRoster(round)}
+    </section>
+    <section class="card stack">${body}</section>`;
+}
+
+function renderReveal(round) {
+  const segs = roundSegments(round.id);
+  return `
+    <section class="card stack">
+      <div class="head">
+        <div>
+          <h1>${esc(round.title)}</h1>
+          <p class="muted">${round.theme ? `${esc(round.theme)} · ` : ""}Revealed ${esc(fmtWhen(round.revealed_at))}</p>
+        </div>
+        ${canManageRound(round) ? `<button class="btn btn-quiet" data-archive="${esc(round.id)}">Archive</button>` : ""}
+      </div>
+    </section>
+    <section class="card">
+      <h2>The finished corpse</h2>
+      ${segs.length
+        ? `<div class="gallery">${segs.map((s) => `
+            <div class="panel">
+              <img src="${esc(s.file_url)}" alt="panel by ${esc(s.member_name)}" />
+              <div class="panel-by">${esc(s.member_name)}</div>
+            </div>`).join("")}</div>`
+        : `<div class="empty">No panels were drawn.</div>`}
+    </section>`;
+}
+
+function renderDetail() {
+  const round = selectedRound();
+  if (!round) return renderList();
+  return `
+    <button class="btn btn-ghost btn-sm back" data-back>Back</button>
+    ${renderMessages()}
+    ${round.status === "revealed" ? renderReveal(round) : renderPlay(round)}`;
+}
+
+function renderCreate() {
+  return `
+    <button class="btn btn-ghost btn-sm back" data-view-list>Back</button>
+    <div class="topbar"><h1>Start a drawing</h1></div>
+    ${renderMessages()}
+    <form class="card form" id="create-form">
+      <div class="field">
+        <label for="title">Title</label>
+        <input id="title" name="title" placeholder="The Beast of Maple Street" required />
+      </div>
+      <div class="field">
+        <label for="theme">Theme <span class="muted tiny" style="text-transform:none">(optional)</span></label>
+        <input id="theme" name="theme" placeholder="A creature nobody has seen" />
+      </div>
+      <div class="field">
+        <label>Artists</label>
+        <p class="muted tiny">You draw first, then the drawing is passed to the others in a random order.</p>
+        <div class="members">
+          ${members.map((m) => {
+            const isHost = m.id === currentMember?.id;
+            return `
+            <label class="member-pick">
+              <input type="checkbox" name="participant" value="${esc(m.id)}" ${isHost ? "checked disabled" : ""} />
+              <span class="avatar" style="background:${esc(memberColor(m.id, members))}">${esc(initial(m.name))}</span>
+              <span>${esc(m.name)}</span>
+              ${isHost ? `<span class="pill info tiny" style="margin-left:auto">You · goes first</span>` : ""}
+            </label>`;
+          }).join("")}
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" type="submit">Start drawing</button>
+      </div>
+    </form>`;
+}
+
+function render() {
+  const root = document.getElementById("root");
+  root.className = "app";
+  root.innerHTML = selectedRoundId ? renderDetail() : view === "create" ? renderCreate() : renderList();
+  const round = selectedRound();
+  if (round && round.status !== "revealed" && canSubmit(round)) setupCanvas(round);
+}
+
+// ── Events ────────────────────────────────────────────────────────────────────
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, [data-open]");
+  if (!t) return;
+  const open = t.getAttribute("data-open");
+  if (open) { selectedRoundId = open; clearMessages(); render(); return; }
+  if (t.matches("[data-back], [data-view-list]")) { selectedRoundId = null; view = "list"; clearMessages(); render(); return; }
+  if (t.matches("[data-view-create]")) { view = "create"; clearMessages(); render(); return; }
+  if (t.matches("[data-refresh]")) { refresh(); return; }
+  if (t.matches("[data-toggle-archived]")) { showArchived = !showArchived; refresh(); return; }
+  if (t.hasAttribute("data-color")) { setColor(t.getAttribute("data-color")); return; }
+  if (t.hasAttribute("data-size")) { setSize(Number(t.getAttribute("data-size"))); return; }
+  if (t.hasAttribute("data-tool")) { setTool(t.getAttribute("data-tool")); return; }
+  if (t.hasAttribute("data-undo")) { undoStroke(); return; }
+  if (t.hasAttribute("data-clear")) { clearCanvas(); return; }
+  if (t.hasAttribute("data-submit")) { submitSegment(); return; }
+  if (t.hasAttribute("data-reveal")) { revealRound(t.getAttribute("data-reveal")); return; }
+  if (t.hasAttribute("data-archive")) { archiveRound(t.getAttribute("data-archive")); return; }
+});
+
+document.addEventListener("submit", (e) => {
+  if (e.target.id !== "create-form") return;
+  e.preventDefault();
+  createRound(e.target);
+});
+
+function handleDeepLink() {
+  const roundId = new URLSearchParams(window.location.search).get("roundId");
+  if (roundId && rounds.some((r) => r.id === roundId)) selectedRoundId = roundId;
+}
+
+(async () => {
+  await loadMembers();
+  await loadData().catch((e) => { error = e.message; });
+  handleDeepLink();
+  render();
+})();
+</script>
+</body>
+</html>

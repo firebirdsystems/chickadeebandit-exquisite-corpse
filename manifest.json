@@ -1,0 +1,66 @@
+{
+  "id": "exquisite-corpse",
+  "name": "Exquisite Corpse",
+  "version": "1.0.0",
+  "description": "The classic collaborative drawing game, played async. Each member adds a hidden segment seeing only the previous artist's edge marks; every segment stays sealed until the host reveals the finished, absurd creation to everyone at once.",
+  "entrypoint": "index.html",
+  "runtime": "static",
+  "category": "family",
+  "tags": ["drawing", "game", "collaborative", "art", "party"],
+  "data_access": {
+    "reads": ["family.members"],
+    "writes": []
+  },
+  "permissions": {
+    "default_audience": "everyone",
+    "requires_approval": false
+  },
+  "storage": "db",
+  "db_plaintext_columns": ["visibility"],
+  "row_policies": {
+    "rounds": {
+      "kind": "owner_or_visibility",
+      "member_column": "created_by_id",
+      "visibility_column": "visibility",
+      "everyone_values": ["everyone"],
+      "write_owner_only": true
+    },
+    "segments": {
+      "kind": "sealed_until",
+      "fk_column": "round_id",
+      "parent_table": "rounds",
+      "writer_column": "member_id",
+      "parent_status_column": "status",
+      "visible_parent_status_values": ["revealed"],
+      "unique_per_member": {
+        "member_column": "member_id",
+        "scope_columns": ["round_id"]
+      },
+      "frozen_when": {
+        "status_column": "status",
+        "locked_values": ["revealed"]
+      }
+    },
+    "handoffs": {
+      "kind": "inherit_visibility",
+      "fk_column": "round_id",
+      "parent_table": "rounds",
+      "writer_column": "member_id",
+      "unique_per_member": {
+        "member_column": "member_id",
+        "scope_columns": ["round_id"]
+      }
+    }
+  },
+  "publishes": ["exquisite_corpse.round_created", "exquisite_corpse.segment_added", "exquisite_corpse.round_revealed"],
+  "nav": { "label": "Exquisite Corpse" },
+  "resource_limits": {
+    "max_db_bytes": 10485760
+  },
+  "icon": "🎨",
+  "ai_access": {
+    "allowed": true,
+    "mode": "read",
+    "db_exports": ["active_rounds"]
+  }
+}
