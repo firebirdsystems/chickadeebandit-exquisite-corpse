@@ -32,9 +32,10 @@
       "writer_column": "member_id",
       "parent_status_column": "status",
       "visible_parent_status_values": ["revealed"],
-      "unique_per_member": {
+      "max_per_member": {
         "member_column": "member_id",
-        "scope_columns": ["round_id"]
+        "scope_columns": ["round_id"],
+        "limit": 1
       },
       "frozen_when": {
         "status_column": "status",
@@ -46,9 +47,10 @@
       "fk_column": "round_id",
       "parent_table": "rounds",
       "writer_column": "member_id",
-      "unique_per_member": {
+      "max_per_member": {
         "member_column": "member_id",
-        "scope_columns": ["round_id"]
+        "scope_columns": ["round_id"],
+        "limit": 1
       }
     }
   },

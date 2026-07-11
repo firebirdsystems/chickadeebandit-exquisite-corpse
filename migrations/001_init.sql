@@ -7,7 +7,7 @@
 --           from how many segments have been submitted (never a mutable pointer).
 -- segments: each artist's hidden panel. sealed_until keeps a segment visible only
 --           to its own author until the parent round.status = 'revealed', at which
---           point every member sees all of them. unique_per_member enforces one
+--           point every member sees all of them. max_per_member enforces one
 --           panel per member per round; frozen_when locks panels once revealed.
 --           NOTE: sealed_until has no turn gate (only inherit_visibility does), so
 --           turn *order* is a client-side UX guard. That is safe: a panel is sealed

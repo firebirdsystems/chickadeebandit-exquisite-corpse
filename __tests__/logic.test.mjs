@@ -58,7 +58,7 @@ describe("canSubmit — mirrors the sealed_until turn/one-per-member rules", () 
     expect(canSubmit(round(), [], ALEX)).toBe(true);
     expect(canSubmit(round(), [], CASEY)).toBe(false); // not their turn yet
   });
-  it("false once the member has already drawn (unique_per_member)", () => {
+  it("false once the member has already drawn (max_per_member)", () => {
     const segs = [seg("m-alex", 0)];
     expect(canSubmit(round(), segs, ALEX)).toBe(false);
     expect(canSubmit(round(), segs, CASEY)).toBe(true);
