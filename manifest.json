@@ -1,5 +1,6 @@
 {
   "id": "exquisite-corpse",
+  "contexts": ["household", "shared_space"],
   "name": "Exquisite Corpse",
   "version": "1.0.0",
   "description": "The classic collaborative drawing game, played async. Each member adds a hidden segment seeing only the previous artist's edge marks; every segment stays sealed until the host reveals the finished, absurd creation to everyone at once.",
