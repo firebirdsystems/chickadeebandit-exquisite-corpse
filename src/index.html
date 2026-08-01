@@ -124,6 +124,13 @@
       .topbar, .head { align-items: stretch; flex-direction: column; }
       .actions .btn { flex: 1; }
     }
+    .search-row { margin-bottom: 12px; }
+    .search-input {
+      width: 100%; border: 1.5px solid var(--border-mid, var(--border, #d1d5db));
+      border-radius: 8px; padding: 9px 11px; font: inherit;
+      background: var(--surface, var(--card, #fff)); color: var(--text, inherit);
+    }
+    .search-input:focus { outline: none; border-color: var(--accent, #6366f1); }
   </style>
   <base href="/run/exquisite-corpse/">
 </head>
@@ -133,11 +140,11 @@
 </div>
 
 <script type="module">
-import { esc, isAdult, memberColor, initial, hubConfirm, hubAlert, createFilesHelper, sendHubNotification, hubAppUrl } from "/hub-sdk.js";
+import { esc, isAdult, memberColor, initial, hubConfirm, hubAlert, createFilesHelper, sendHubNotification, hubAppUrl, searchMatch } from "/hub-sdk.js";
 import {
   parseOrder, orderedSegments, deriveTurn, mySegment, isParticipant,
   canSubmit as _canSubmit, positionFor, canManageRound as _canManage,
-  canReveal as _canReveal, computeConnectors,
+  canReveal as _canReveal, computeConnectors, searchableFields,
 } from "./logic.js";
 
 const CONTEXT    = window.__CONTEXT_URL ?? "";
@@ -156,6 +163,7 @@ let members = [];
 let memberMap = new Map();
 let currentMember = null;
 let rounds = [];
+let searchQ = "";       // in-app search (see logic.js searchableFields)
 let segments = [];
 let handoffs = [];
 let selectedRoundId = null;
@@ -591,10 +599,27 @@ function renderList() {
         <button class="btn btn-ghost btn-sm" data-refresh>Refresh</button>
       </div>
     </div>
-    <section class="stack">
-      ${visible.length ? visible.map(renderRoundCard).join("") : `<div class="card empty">${showArchived ? "Nothing archived." : "No drawings yet — start the first one!"}</div>`}
+    ${rounds.length ? `<div class="search-row"><input id="search" class="search-input" type="search" placeholder="Search drawings…" aria-label="Search drawings" value="${esc(searchQ)}" /></div>` : ""}
+    <section class="stack" id="round-list">
+      ${renderRoundList()}
     </section>`;
 }
+
+// Owns the filtering and the empty states, so the keystroke handler can refresh
+// the list without repeating how it is derived.
+function renderRoundList() {
+  const shown = searchQ ? rounds.filter(r => searchMatch(searchQ, searchableFields(r))) : rounds;
+  if (shown.length) return shown.map(renderRoundCard).join("");
+  if (searchQ) return `<div class="card empty">No drawings match "${esc(searchQ)}".</div>`;
+  return `<div class="card empty">${showArchived ? "Nothing archived." : "No drawings yet — start the first one!"}</div>`;
+}
+
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "search") return;
+  searchQ = e.target.value;
+  const el = document.getElementById("round-list");
+  if (el) el.innerHTML = renderRoundList();
+});
 
 function renderRoster(round) {
   const turn = deriveTurn(round, segments);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseOrder, orderedSegments, deriveTurn, mySegment, isParticipant,
-  canSubmit, positionFor, canManageRound, canReveal, computeConnectors,
+  canSubmit, positionFor, canManageRound, canReveal, computeConnectors, searchableFields,
 } from "../src/logic.js";
 
 const ALEX = { id: "m-alex", name: "Alex", role: "adult" };
@@ -138,5 +138,13 @@ describe("computeConnectors — low-info hand-off only", () => {
   it("clamps x into 0..1", () => {
     const strokes = [{ color: "#000", points: [{ x: 500, y: 295 }] }];
     expect(computeConnectors(strokes, W, H)[0].x).toBe(1);
+  });
+});
+
+describe("searchableFields", () => {
+  it("matches on the theme, which is how a drawing is remembered", () => {
+    const fields = searchableFields({ title: "Round 4", theme: "under the sea", created_by_name: "Mia" });
+    expect(fields).toContain("under the sea");
+    expect(fields).toContain("Mia");
   });
 });

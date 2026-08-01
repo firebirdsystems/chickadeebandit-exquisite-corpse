@@ -92,3 +92,12 @@ export function computeConnectors(strokes, width, height, band = 24, max = 14) {
   }
   return out;
 }
+
+/**
+ * Fields the in-app search matches against (see hub-sdk `searchMatch`).
+ * The theme is what a drawing is remembered by once the title has
+ * blurred; the starter is credited too.
+ */
+export function searchableFields(item) {
+  return [item.title, item.theme, item.created_by_name];
+}
