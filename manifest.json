@@ -24,7 +24,16 @@
       "member_column": "created_by_id",
       "visibility_column": "visibility",
       "everyone_values": ["everyone"],
-      "write_owner_only": true
+      "write_owner_only": true,
+      "retain_days": {
+        "default": 365,
+        "timestamp_column": "created_at",
+        "override_key": "round_history",
+        "dependent_tables": [
+          { "table": "segments", "foreign_key": "round_id", "file_id_column": "file_id" },
+          { "table": "handoffs", "foreign_key": "round_id" }
+        ]
+      }
     },
     "segments": {
       "kind": "sealed_until",
@@ -55,7 +64,27 @@
       }
     }
   },
+  "member_references": {
+    "rounds": {
+      "column": "created_by_id",
+      "on_removed": "keep"
+    },
+    "segments": {
+      "column": "member_id",
+      "on_removed": "delete",
+      "file_id_column": "file_id"
+    },
+    "handoffs": {
+      "column": "member_id",
+      "on_removed": "delete"
+    }
+  },
   "publishes": ["exquisite_corpse.round_created", "exquisite_corpse.segment_added", "exquisite_corpse.round_revealed"],
+  "publish_acls": {
+    "exquisite_corpse.round_created": { "require_role": "member" },
+    "exquisite_corpse.segment_added": { "require_role": "member" },
+    "exquisite_corpse.round_revealed": { "require_role": "member" }
+  },
   "nav": { "label": "Exquisite Corpse" },
   "resource_limits": {
     "max_db_bytes": 10485760
