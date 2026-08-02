@@ -85,6 +85,13 @@
     "exquisite_corpse.segment_added": { "require_role": "member" },
     "exquisite_corpse.round_revealed": { "require_role": "member" }
   },
+  "glance": {
+    "source": {
+      "kind": "sql",
+      "query": "SELECT COUNT(*) AS n FROM app_exquisite_corpse__rounds r LEFT JOIN app_exquisite_corpse__segments s ON s.round_id = r.id WHERE r.archived = 0 AND r.status = 'open' AND s.id IS NULL LIMIT 1"
+    },
+    "display": { "template": "badge", "count": "n", "label": "drawings waiting for your panel", "severity": "info" }
+  },
   "nav": { "label": "Exquisite Corpse" },
   "resource_limits": {
     "max_db_bytes": 10485760
