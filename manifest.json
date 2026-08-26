@@ -28,6 +28,10 @@
     "requires_approval": false
   },
   "storage": "db",
+  "preload": {
+    "segments": {"sql": "SELECT * FROM app_exquisite_corpse__segments ORDER BY position ASC, created_at ASC"},
+    "handoffs": {"sql": "SELECT * FROM app_exquisite_corpse__handoffs ORDER BY position ASC"}
+  },
   "db_plaintext_columns": [
     "visibility"
   ],
