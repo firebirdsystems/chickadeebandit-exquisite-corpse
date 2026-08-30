@@ -104,6 +104,10 @@ export function mySegment(segments, round, me) {
 // server's one-per-member rule keys on.
 export function canSubmit(round, segments, handoffs, me, memberIds = []) {
   if (!me || round.status !== "open" || round.archived) return false;
+  // A drawing whose host has left can never be revealed, so a panel added to it
+  // would stay sealed from everyone forever — including its own artist, who
+  // would also have spent their one panel for this round on it.
+  if (isOrphanedRound(round)) return false;
   if (mySegment(segments, round, me)) return false;
   // roundProgress's roster clause cannot bite here — this member has no panel,
   // so if they are on the roster then not everyone has drawn. Kept as the
@@ -138,6 +142,8 @@ export function submitDecision({ round, segments, handoffs, me, drawnAgainst, dr
   // raw policy rejection into a sentence.
   if (mySegment(segments, round, me)) return { action: "blocked", reason: "already_drawn" };
   if (round.status !== "open" || round.archived) return { action: "blocked", reason: "round_closed" };
+  // Re-read state can show the host gone since the canvas was opened.
+  if (isOrphanedRound(round)) return { action: "blocked", reason: "host_gone" };
 
   const { drawn } = roundProgress(round, handoffs, memberIds);
   const arrived = Math.max(0, panelCount(handoffs, round.id) - drawnAgainst);
@@ -163,10 +169,33 @@ export function submitDecision({ round, segments, handoffs, me, drawnAgainst, dr
   return { action: "go", position };
 }
 
+/**
+ * A round whose host has left the household. `member_references.rounds` is
+ * `on_removed: "null"` with `null_value: ""`, so an empty `created_by_id` is the
+ * hub's own record that the member is gone — a stored fact, still true when
+ * `family.members` failed to load.
+ *
+ * Such a round can never be revealed, and that is correct rather than broken.
+ * `rounds` keeps `write_owner_only`, so the hub accepts a write only from the
+ * creator, and the creator no longer exists. Dropping that flag would let ANY
+ * adult flip a round to 'revealed' — releasing every artist's sealed panel on a
+ * drawing they had no part in, which is the one property this app exists to
+ * hold ("nobody, the host included, sees another artist's panel before the
+ * reveal"). An unrevealable round is the confidentiality rule working; the
+ * defect was only that the app never said so, kept inviting panels into it, and
+ * kept badging it on the Glance. Those are the parts fixed, client-side.
+ *
+ * Retention retires the row on the normal 365-day schedule, panels and files
+ * with it.
+ */
+export function isOrphanedRound(round) {
+  return !!round && round.created_by_id === "";
+}
+
 // Mirrors owner_or_visibility + write_owner_only: only the creator manages the
 // round (reveal / archive). Adults get no bypass here — the host owns their game.
 export function canManageRound(round, me) {
-  return !!me && !!round && round.created_by_id === me.id;
+  return !!me && !!round && round.created_by_id === me.id && !isOrphanedRound(round);
 }
 
 // Host may reveal an open round that has at least one panel. Revealing before

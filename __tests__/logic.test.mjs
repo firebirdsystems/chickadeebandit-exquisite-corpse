@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   panelCount, nextPosition, roundProgress, artistIds,
   orderedSegments, mySegment, canSubmit, canManageRound, canReveal, submitDecision, topHandoffId,
-  lastConnectors, computeConnectors, searchableFields,
+  lastConnectors, computeConnectors, searchableFields, isOrphanedRound,
 } from "../src/logic.js";
 
 const ALEX = { id: "m-alex", name: "Alex", role: "adult" };
@@ -149,6 +149,38 @@ describe("canReveal — host only, and counted from hand-offs", () => {
   it("is false once revealed or archived", () => {
     expect(canReveal(round({ status: "revealed" }), [ho("m-alex", 0)], ALEX)).toBe(false);
     expect(canReveal(round({ archived: 1 }), [ho("m-alex", 0)], ALEX)).toBe(false);
+  });
+});
+
+describe("a round whose host has left the household", () => {
+  // member_references.rounds is on_removed:"null" with null_value:"", so an
+  // empty created_by_id is the hub's record that the host is gone.
+  const orphaned = round({ created_by_id: "" });
+
+  it("can be revealed by nobody — not the ex-host's id, not an adult", () => {
+    expect(canManageRound(orphaned, ALEX)).toBe(false);
+    expect(canManageRound(orphaned, RILEY)).toBe(false);
+    expect(canReveal(orphaned, [ho("m-casey", 0)], ALEX)).toBe(false);
+  });
+
+  it("stops inviting panels, because one added now would seal forever", () => {
+    const { segments, handoffs } = asSeenBy(CASEY, [seg("m-alex", 0)], [ho("m-alex", 0)]);
+    expect(canSubmit(round(), segments, handoffs, CASEY, [ALEX.id, CASEY.id])).toBe(true);
+    expect(canSubmit(orphaned, segments, handoffs, CASEY, [ALEX.id, CASEY.id])).toBe(false);
+  });
+
+  it("blocks a submit whose canvas was opened before the host left", () => {
+    const d = submitDecision({
+      round: orphaned, segments: [], handoffs: [ho("m-alex", 0)], me: CASEY,
+      drawnAgainst: 1, drawnAgainstId: "h-m-alex", memberIds: [CASEY.id],
+    });
+    expect(d).toEqual({ action: "blocked", reason: "host_gone" });
+  });
+
+  it("leaves a live round alone", () => {
+    expect(isOrphanedRound(round())).toBe(false);
+    expect(isOrphanedRound(orphaned)).toBe(true);
+    expect(canManageRound(round(), ALEX)).toBe(true);
   });
 });
 

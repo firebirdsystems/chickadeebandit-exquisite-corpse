@@ -140,12 +140,12 @@
 </div>
 
 <script type="module">
-import { esc, isAdult, memberColor, initial, hubConfirm, hubAlert, createFilesHelper, sendHubNotification, hubAppUrl, searchMatch } from "/hub-sdk.js";
+import { esc, memberColor, initial, hubConfirm, createFilesHelper, sendHubNotification, hubAppUrl, searchMatch } from "/hub-sdk.js";
 import {
   orderedSegments, mySegment, panelCount, topHandoffId, submitDecision,
   roundProgress, artistIds, lastConnectors,
   canSubmit as _canSubmit, canManageRound as _canManage,
-  canReveal as _canReveal, computeConnectors, searchableFields,
+  canReveal as _canReveal, computeConnectors, searchableFields, isOrphanedRound,
 } from "./logic.js";
 
 const CONTEXT    = window.__CONTEXT_URL ?? "";
@@ -172,6 +172,15 @@ let view = "list";
 let showArchived = false;
 let error = "";
 let notice = "";
+// A submit is in flight. Module state rather than the button's own `disabled`:
+// that is DOM state, and ANY render during the submit's awaits — a toolbar
+// click, the round refresh fired when a card is opened — rebuilds the button
+// enabled and re-arms a submit that is still running.
+let submitting = false;
+// What was typed into the create form, kept only so a failed INSERT doesn't
+// wipe it: showError re-renders, and the form had no value attributes to
+// restore from.
+let createDraft = { title: "", theme: "" };
 
 // drawing state
 let strokes = [];
@@ -342,6 +351,38 @@ async function refresh() {
 }
 
 function clearMessages() { error = ""; notice = ""; }
+
+// hub-sdk's hubConfirm is a bare postMessage round-trip: `new Promise(resolve
+// => …)` with no timeout and no reject path. If the parent frame never answers
+// — it navigated, the dialog was torn down — the promise stays pending for the
+// life of the page, and every caller here is holding something back while it
+// waits. The submit path is the expensive one: it holds a finished drawing that
+// exists only in memory, behind a disabled button, so a hang costs the artist
+// their panel with a reload as the only way out.
+//
+// Timing out to "cancelled" is the safe answer for all three callers — nothing
+// is committed, and the submit path keeps the strokes on the canvas so the
+// artist can simply press it again.
+const CONFIRM_TIMEOUT_MS = 120000;
+function confirmOrCancel(opts) {
+  return Promise.race([
+    hubConfirm(opts).catch(() => false),
+    new Promise((resolve) => setTimeout(() => resolve(false), CONFIRM_TIMEOUT_MS)),
+  ]);
+}
+
+// Members with no panel in this round, by name. Used to say what an early
+// reveal actually costs.
+function outstandingNames(round) {
+  const drawn = new Set(artistIds(handoffs, round.id));
+  return members.filter((m) => !drawn.has(m.id)).map((m) => m.name);
+}
+
+function listNames(names) {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 function showError(m) { error = m; notice = ""; render(); }
 function showNotice(m) { notice = m; error = ""; render(); }
 
@@ -349,6 +390,9 @@ function showNotice(m) { notice = m; error = ""; render(); }
 async function createRound(form) {
   const title = form.title.value.trim();
   const theme = form.theme.value.trim();
+  // Held before anything can fail: showError re-renders the form, and without
+  // this every transient DB error threw away what the host had typed.
+  createDraft = { title, theme };
   if (!title) return showError("Give your drawing a title.");
 
   const round = {
@@ -365,6 +409,7 @@ async function createRound(form) {
       [round.id, round.title, round.theme, round.panel_height, round.created_by_id, round.created_by_name, round.created_at]
     );
     rounds = [round, ...rounds];
+    createDraft = { title: "", theme: "" };
     selectedRoundId = round.id;
     view = "list";
     showNotice("Drawing started — anyone can add the first panel.");
@@ -386,6 +431,8 @@ const BLOCKED_MESSAGE = {
   already_drawn: () => "Your panel for this drawing is already in — it's one each.",
   round_closed: (round) =>
     `${round.created_by_name} closed this drawing while you were drawing. Your panel can't be added.`,
+  host_gone: (round) =>
+    `${round.created_by_name} left the household while you were drawing, so this drawing can never be revealed. Your panel wasn't added — it would have stayed sealed from everyone, including you.`,
 };
 
 const CONFIRM_COPY = {
@@ -427,185 +474,220 @@ function announceSubmission(round, pos) {
 // Thrown when a hand-off insert reports failure but turns out to have
 // committed: the submit succeeded and must not be rolled back or re-reported.
 class SubmitLanded extends Error {
-  constructor(roundId, position, handoff) {
+  constructor(roundId, position, segment, handoff) {
     super("submit landed");
     this.roundId = roundId;
     this.position = position;
+    this.segment = segment;
     this.handoff = handoff;
   }
 }
 
 async function submitSegment() {
+  // The in-flight guard is module state, not the button's `disabled`. That was
+  // DOM state, and any render during the awaits below — a toolbar click, the
+  // round refresh fired when a card is opened — rebuilt the button enabled and
+  // re-armed a submit that was still running. The second run uploads another
+  // copy of the drawing and then fails on max_per_member, so it cost a leaked
+  // file and a raw policy error.
+  if (submitting) return;
   const round = selectedRound();
   if (!round || !canSubmit(round)) return showError("You can't add a panel to this drawing.");
-  const canvas = document.getElementById("draw");
-  if (!canvas) return;
   if (!strokes.length) return showError("Draw something before passing it on.");
-  // Measured NOW, while the element is still in the document. Two awaits follow
-  // (the re-read and the confirm dialog), and hitting Back during either
-  // detaches the canvas — clientWidth then reads 0 and computeConnectors
-  // returns [], which would submit a panel leaving no marks for the next
-  // artist. The bitmap survives detachment, so only the layout read is at risk.
-  const canvasWidth = canvas.clientWidth;
-  if (!canvasWidth) return showError("Couldn't measure the canvas — try again.");
 
-  const btn = document.getElementById("submit-btn");
-  if (btn) { btn.disabled = true; btn.textContent = "Checking…"; }
-
-  // Captured when this canvas started taking strokes — see canvasDrawnAgainst.
-  const drawnAgainst = canvasDrawnAgainst;
-  let fresh;
+  submitting = true;
   try {
-    fresh = await refreshRoundState(round.id);
-  } catch (e) { return showError(e.message); }
-  if (!fresh) return showError("This drawing is no longer here.");
+    // Render first so the button shows the guard, and take the canvas AFTER:
+    // the render replaces the element, so a reference taken before it would be
+    // detached. redrawCanvas repaints the strokes onto the new one, so both the
+    // drawing and the width measured below survive the swap.
+    render();
+    const canvas = document.getElementById("draw");
+    if (!canvas) return;
+    // Measured NOW, while the element is still in the document. Two awaits follow
+    // (the re-read and the confirm dialog), and hitting Back during either
+    // detaches the canvas — clientWidth then reads 0 and computeConnectors
+    // returns [], which would submit a panel leaving no marks for the next
+    // artist. The bitmap survives detachment, so only the layout read is at risk.
+    const canvasWidth = canvas.clientWidth;
+    if (!canvasWidth) return showError("Couldn't measure the canvas — try again.");
 
-  // Two artists submitting in the same instant can still both land on the same
-  // slot, and both panels are kept. The segment and the hand-off are separate
-  // INSERTs with no transaction between them, so a UNIQUE(round_id, position)
-  // guard would take the loser's hand-off after their segment had already
-  // landed and strand a finished drawing behind the one-panel-per-member rule
-  // with no way to retry. Two panels continuing one edge is the cheaper
-  // failure in a game about seams that don't line up; a discarded drawing is
-  // not. What the re-read above buys is the far commoner case — a tab left
-  // open — which is now answered instead of silently stacked.
-  const decision = submitDecision({
-    round: fresh, segments, handoffs, me: currentMember, memberIds: memberIds(),
-    drawnAgainst, drawnAgainstId: canvasDrawnAgainstId,
-  });
-  if (decision.action === "blocked") {
-    return showError(BLOCKED_MESSAGE[decision.reason](fresh));
-  }
-  if (decision.action === "confirm") {
-    const ok = await hubConfirm(CONFIRM_COPY[decision.kind](decision, fresh));
-    if (!ok) {
-      // Keeping their strokes and drawing on. render() repaints the ghost from
-      // the state just read; the baseline moves when they actually draw to it.
-      rebaselineOnNextStroke = true;
-      render();
-      return;
+    // Captured when this canvas started taking strokes — see canvasDrawnAgainst.
+    const drawnAgainst = canvasDrawnAgainst;
+    let fresh;
+    try {
+      fresh = await refreshRoundState(round.id);
+    } catch (e) { return showError(e.message); }
+    if (!fresh) return showError("This drawing is no longer here.");
+
+    // Two artists submitting in the same instant can still both land on the same
+    // slot, and both panels are kept. The segment and the hand-off are separate
+    // INSERTs with no transaction between them, so a UNIQUE(round_id, position)
+    // guard would take the loser's hand-off after their segment had already
+    // landed and strand a finished drawing behind the one-panel-per-member rule
+    // with no way to retry. Two panels continuing one edge is the cheaper
+    // failure in a game about seams that don't line up; a discarded drawing is
+    // not. What the re-read above buys is the far commoner case — a tab left
+    // open — which is now answered instead of silently stacked.
+    const decision = submitDecision({
+      round: fresh, segments, handoffs, me: currentMember, memberIds: memberIds(),
+      drawnAgainst, drawnAgainstId: canvasDrawnAgainstId,
+    });
+    if (decision.action === "blocked") {
+      return showError(BLOCKED_MESSAGE[decision.reason](fresh));
     }
-  }
-
-  // Re-checked after the awaits: Clear (or Undo back to nothing) can run while
-  // the re-read or the dialog is open, and both the stroke list and the bitmap
-  // go blank together. Submitting then burns this member's one panel on an
-  // empty image with no connectors, which max_per_member makes unrepairable.
-  if (!strokes.length) return showError("Your canvas was cleared — draw something before passing it on.");
-
-  const pos = decision.position;
-  const connectors = computeConnectors(strokes, canvasWidth, fresh.panel_height, BAND);
-  if (btn) { btn.disabled = true; btn.textContent = "Passing it on…"; }
-
-  try {
-    let fileId = "";
-    let fileUrl;
-    if (FILES_URL) {
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-      if (!blob) throw new Error("Could not capture the drawing.");
-      const up = await files.upload(new File([blob], `${fresh.id}-${pos}.png`, { type: "image/png" }));
-      fileId = up.id; fileUrl = up.url;
-    } else {
-      fileUrl = canvas.toDataURL("image/png"); // demo mode
-    }
-
-    const seg = {
-      id: uid("seg"), round_id: fresh.id, member_id: currentMember.id, member_name: currentMember.name,
-      position: pos, file_id: fileId, file_url: fileUrl, created_at: nowIso(),
-    };
-    const ho = {
-      id: uid("ho"), round_id: fresh.id, member_id: currentMember.id, position: pos,
-      connectors: JSON.stringify(connectors), created_at: nowIso(),
-    };
-    if (DB) {
-      await dbq(
-        `INSERT INTO app_exquisite_corpse__segments
-           (id, round_id, member_id, member_name, position, file_id, file_url, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [seg.id, seg.round_id, seg.member_id, seg.member_name, seg.position, seg.file_id, seg.file_url, seg.created_at]
-      );
-      try {
-        await dbq(
-          `INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [ho.id, ho.round_id, ho.member_id, ho.position, ho.connectors, ho.created_at]
-        );
-      } catch (handoffError) {
-        // Did it actually land? A response lost after a successful commit looks
-        // identical from here to an insert that never ran, and the two want
-        // opposite repairs. Ask the server before undoing anything.
-        let present = null; // true | false | null = could not tell
-        try {
-          const check = await dbq("SELECT id FROM app_exquisite_corpse__handoffs WHERE id = ?", [ho.id]);
-          present = ((check.rows ?? []).length > 0);
-        } catch { present = null; }
-        if (present !== false) {
-          // Either it committed — nothing to undo — or we cannot tell, in which
-          // case leaving both rows is the safer half of the trade. An orphan
-          // SEGMENT still shows up in the reveal gallery and costs only
-          // bookkeeping; an orphan HAND-OFF (which rolling back would create if
-          // the insert really did commit) counts a panel that has no image,
-          // misfeeds the next artist, and is blocked from repair by
-          // max_per_member. Never risk creating one to tidy up the other.
-          if (present === true) throw new SubmitLanded(fresh.id, pos, ho);
-          throw new Error(
-            "Your panel saved but we couldn't confirm it was passed on. "
-            + "Reload to check before drawing anything else."
-          );
-        }
-        // The panel landed; the hand-off that publishes it to everyone else did
-        // not. There is no transaction across the two, and leaving the segment
-        // behind is the worst of the available states: one-panel-per-member
-        // blocks every retry (the next re-read pulls the orphan into
-        // `segments`, so submit answers already_drawn forever), the count
-        // under-reports the panel, the artist shows as "not yet" on the roster,
-        // and the next artist continues marks that were never published.
-        // Take the panel back out so a retry is simply possible — the row
-        // delete also reclaims the uploaded file (manifest delete_file_columns).
-        try {
-          await dbq("DELETE FROM app_exquisite_corpse__segments WHERE id = ?", [seg.id]);
-        } catch {
-          throw new Error(
-            "Your panel saved but couldn't be passed on, and undoing it failed too. "
-            + "Reload before trying again — don't redraw yet."
-          );
-        }
-        const why = handoffError?.message ? ` (${handoffError.message})` : "";
-        throw new Error(`Couldn't pass the drawing on, so nothing was saved${why}. Try submitting again.`);
+    if (decision.action === "confirm") {
+      const ok = await confirmOrCancel(CONFIRM_COPY[decision.kind](decision, fresh));
+      if (!ok) {
+        // Keeping their strokes and drawing on. The finally below repaints the
+        // ghost from the state just read; the baseline moves when they actually
+        // draw to it.
+        rebaselineOnNextStroke = true;
+        return;
       }
     }
-    segments = [...segments, seg];
-    handoffs = [...handoffs, ho];
-    strokes = [];
-    canvasRoundKey = null;
 
-    announceSubmission(fresh, pos);
-  } catch (e) {
-    if (e instanceof SubmitLanded) {
-      // The panel is in. Everything after the inserts is local bookkeeping the
-      // next load redoes anyway, so retire the canvas and reload rather than
-      // telling an artist their finished panel failed. The canvas state is
-      // cleared FIRST and the notice comes LAST: refresh() opens with
-      // clearMessages(), and if it throws, the canvas must still be gone —
-      // leaving it live over a committed panel invites a second submit that
-      // one-panel-per-member will refuse.
+    // Re-checked after the awaits: Clear (or Undo back to nothing) can run while
+    // the re-read or the dialog is open, and both the stroke list and the bitmap
+    // go blank together. Submitting then burns this member's one panel on an
+    // empty image with no connectors, which max_per_member makes unrepairable.
+    if (!strokes.length) return showError("Your canvas was cleared — draw something before passing it on.");
+
+    const pos = decision.position;
+    const connectors = computeConnectors(strokes, canvasWidth, fresh.panel_height, BAND);
+
+    try {
+      let fileId = "";
+      let fileUrl;
+      if (FILES_URL) {
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!blob) throw new Error("Could not capture the drawing.");
+        const up = await files.upload(new File([blob], `${fresh.id}-${pos}.png`, { type: "image/png" }));
+        fileId = up.id; fileUrl = up.url;
+      } else {
+        fileUrl = canvas.toDataURL("image/png"); // demo mode
+      }
+
+      const seg = {
+        id: uid("seg"), round_id: fresh.id, member_id: currentMember.id, member_name: currentMember.name,
+        position: pos, file_id: fileId, file_url: fileUrl, created_at: nowIso(),
+      };
+      const ho = {
+        id: uid("ho"), round_id: fresh.id, member_id: currentMember.id, position: pos,
+        connectors: JSON.stringify(connectors), created_at: nowIso(),
+      };
+      if (DB) {
+        try {
+          await dbq(
+            `INSERT INTO app_exquisite_corpse__segments
+               (id, round_id, member_id, member_name, position, file_id, file_url, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [seg.id, seg.round_id, seg.member_id, seg.member_name, seg.position, seg.file_id, seg.file_url, seg.created_at]
+          );
+        } catch (segmentError) {
+          // The upload happens before the row that owns it, so a failed INSERT
+          // leaves a file nothing references. manifest.delete_file_columns can
+          // never reclaim it — that reclaims files FROM a deleted row, and here
+          // no row was ever written — and each retry uploads another copy, all
+          // of them billed against the household's storage quota. This is the
+          // last moment anything knows the id, so take it back out here.
+          if (fileId) { try { await files.delete(fileId); } catch { /* best effort */ } }
+          throw segmentError;
+        }
+        try {
+          await dbq(
+            `INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [ho.id, ho.round_id, ho.member_id, ho.position, ho.connectors, ho.created_at]
+          );
+        } catch (handoffError) {
+          // Did it actually land? A response lost after a successful commit looks
+          // identical from here to an insert that never ran, and the two want
+          // opposite repairs. Ask the server before undoing anything.
+          let present = null; // true | false | null = could not tell
+          try {
+            const check = await dbq("SELECT id FROM app_exquisite_corpse__handoffs WHERE id = ?", [ho.id]);
+            present = ((check.rows ?? []).length > 0);
+          } catch { present = null; }
+          if (present !== false) {
+            // Either it committed — nothing to undo — or we cannot tell, in which
+            // case leaving both rows is the safer half of the trade. An orphan
+            // SEGMENT still shows up in the reveal gallery and costs only
+            // bookkeeping; an orphan HAND-OFF (which rolling back would create if
+            // the insert really did commit) counts a panel that has no image,
+            // misfeeds the next artist, and is blocked from repair by
+            // max_per_member. Never risk creating one to tidy up the other.
+            if (present === true) throw new SubmitLanded(fresh.id, pos, seg, ho);
+            throw new Error(
+              "Your panel saved but we couldn't confirm it was passed on. "
+              + "Reload to check before drawing anything else."
+            );
+          }
+          // The panel landed; the hand-off that publishes it to everyone else did
+          // not. There is no transaction across the two, and leaving the segment
+          // behind is the worst of the available states: one-panel-per-member
+          // blocks every retry (the next re-read pulls the orphan into
+          // `segments`, so submit answers already_drawn forever), the count
+          // under-reports the panel, the artist shows as "not yet" on the roster,
+          // and the next artist continues marks that were never published.
+          // Take the panel back out so a retry is simply possible — the row
+          // delete also reclaims the uploaded file (manifest delete_file_columns).
+          try {
+            await dbq("DELETE FROM app_exquisite_corpse__segments WHERE id = ?", [seg.id]);
+          } catch {
+            throw new Error(
+              "Your panel saved but couldn't be passed on, and undoing it failed too. "
+              + "Reload before trying again — don't redraw yet."
+            );
+          }
+          const why = handoffError?.message ? ` (${handoffError.message})` : "";
+          throw new Error(`Couldn't pass the drawing on, so nothing was saved${why}. Try submitting again.`);
+        }
+      }
+      segments = [...segments, seg];
+      handoffs = [...handoffs, ho];
       strokes = [];
       canvasRoundKey = null;
-      try { await refresh(); } catch { /* the next load reconciles the list */ }
-      // If that refresh failed, the committed hand-off is missing locally and
-      // progressOf would under-count it — skipping the host's nudge on the very
-      // panel that finished the drawing, which is what this branch exists to
-      // prevent. Put the row we know landed back before announcing.
-      if (e.handoff && !handoffs.some((h) => h.id === e.handoff.id)) {
-        handoffs = [...handoffs, e.handoff];
+
+      announceSubmission(fresh, pos);
+    } catch (e) {
+      if (e instanceof SubmitLanded) {
+        // The panel is in. Everything after the inserts is local bookkeeping the
+        // next load redoes anyway, so retire the canvas and reload rather than
+        // telling an artist their finished panel failed. The canvas state is
+        // cleared FIRST and the notice comes LAST: refresh() opens with
+        // clearMessages(), and if it throws, the canvas must still be gone —
+        // leaving it live over a committed panel invites a second submit that
+        // one-panel-per-member will refuse.
+        strokes = [];
+        canvasRoundKey = null;
+        try { await refresh(); } catch { /* the next load reconciles the list */ }
+        // If that refresh failed, the committed rows are missing locally. The
+        // hand-off matters to progressOf, which would under-count and skip the
+        // host's nudge on the very panel that finished the drawing — the thing
+        // this branch exists to prevent. The segment matters to canSubmit, which
+        // without it offers the canvas again for a panel the server will now
+        // refuse. Put both back before announcing.
+        if (e.handoff && !handoffs.some((h) => h.id === e.handoff.id)) {
+          handoffs = [...handoffs, e.handoff];
+        }
+        if (e.segment && !segments.some((s) => s.id === e.segment.id)) {
+          segments = [...segments, e.segment];
+        }
+        const landedRound = rounds.find((r) => r.id === e.roundId) ?? null;
+        if (landedRound) announceSubmission(landedRound, e.position);
+        else showNotice("Your panel is in.");
+        return;
       }
-      const landedRound = rounds.find((r) => r.id === e.roundId) ?? null;
-      if (landedRound) announceSubmission(landedRound, e.position);
-      else showNotice("Your panel is in.");
-      return;
+      showError(e.message);
     }
-    if (btn) { btn.disabled = false; btn.textContent = "Submit & pass on"; }
-    showError(e.message);
+  } finally {
+    // Every path above leaves through here, so the guard is released and the
+    // view repainted exactly once — including the early returns that never
+    // rendered themselves. `error` and `notice` are module state, so a message
+    // set on the way out survives this repaint.
+    submitting = false;
+    render();
   }
 }
 
@@ -627,10 +709,20 @@ async function revealRound(roundId) {
   // Revealing before everyone has drawn is how a host ends a drawing early —
   // allowed, but it is the destructive one: whoever has not drawn never will.
   const early = !complete;
-  const ok = await hubConfirm({
+  // Names them rather than counting them, and describes what happens to their
+  // PANELS rather than to their turns. This used to read "Anyone who hasn't
+  // drawn yet loses their turn", which asserts something the app cannot know:
+  // `family.members` is the whole household roster, and a household can narrow
+  // an app's audience (visible_to, per-member overrides, min_age) without the
+  // app ever hearing about it — so the people who have not drawn may never have
+  // been able to. What is always true is that their panels won't be included.
+  const missing = outstandingNames(round);
+  const ok = await confirmOrCancel({
     message: early ? "Reveal now, before everyone has drawn?" : "Reveal the finished drawing?",
     description: early
-      ? `${drawn} ${drawn === 1 ? "panel is" : "panels are"} in. Anyone who hasn't drawn yet loses their turn.`
+      ? `${drawn} ${drawn === 1 ? "panel is" : "panels are"} in.${missing.length
+          ? ` ${listNames(missing)} ${missing.length === 1 ? "hasn't" : "haven't"} drawn, so ${missing.length === 1 ? "their panel won't" : "their panels won't"} be included.`
+          : ""}`
       : `All ${drawn} ${drawn === 1 ? "panel" : "panels"} will be shown to the whole household at once.`,
     confirmLabel: "Reveal",
     destructive: early,
@@ -659,7 +751,7 @@ async function revealRound(roundId) {
 async function archiveRound(roundId) {
   const round = rounds.find((r) => r.id === roundId);
   if (!round || !canManageRound(round)) return showError("Only the host can archive this drawing.");
-  const ok = await hubConfirm({
+  const ok = await confirmOrCancel({
     message: "Archive this drawing?",
     description: "It moves to the archived list. Nothing is deleted.",
     confirmLabel: "Archive", destructive: true,
@@ -821,6 +913,7 @@ function statusPill(round) {
   // Before `complete`: an archived round is closed for good, and offering
   // "Ready to reveal" next to no reveal button is the worse kind of wrong.
   if (round.archived) return `<span class="pill" data-testid="round-status">Archived</span>`;
+  if (isOrphanedRound(round)) return `<span class="pill warn" data-testid="round-status">Host left</span>`;
   if (canSubmit(round)) return `<span class="pill info" data-testid="round-status">Add your panel</span>`;
   // Everyone has drawn: it will take no more panels, so a count reads as
   // still-going for something that is finished. Name the state instead.
@@ -937,7 +1030,7 @@ function renderPlay(round) {
       <div class="canvas-wrap"><canvas id="draw" data-testid="draw-canvas"></canvas></div>
       ${renderToolbar()}
       <div class="actions">
-        <button class="btn" id="submit-btn" data-testid="submit-panel" data-submit>Submit & pass on</button>
+        <button class="btn" id="submit-btn" data-testid="submit-panel" data-submit ${submitting ? "disabled" : ""}>${submitting ? "Passing it on…" : "Submit &amp; pass on"}</button>
         <span class="muted tiny">${ghost ? "Continue the violet ticks up top." : "Draw freely."}</span>
       </div>`;
   } else if (mine) {
@@ -946,6 +1039,11 @@ function renderPlay(round) {
         ? "This drawing was archived before it was revealed, so your panel stays sealed."
         : "Your panel is locked in and sealed — you'll see everyone's work when the host reveals it."}</div>
       <div class="gallery"><div class="panel"><img src="${esc(mine.file_url)}" alt="your panel" /><div class="panel-by">Your panel · position ${Number(mine.position) + 1}</div></div></div>`;
+  } else if (isOrphanedRound(round)) {
+    // Reached by anyone who has not drawn, and by the ex-host's co-artists.
+    // Whoever already drew lands in the `mine` branch above, which tells them
+    // their panel is sealed — which remains true, permanently.
+    body = `<div class="empty" data-testid="round-closed">${esc(round.created_by_name)} has left the household, so this drawing can't be revealed and isn't taking any more panels. The panels already in it stay sealed, and it will be cleaned up automatically.</div>`;
   } else if (round.archived) {
     // Before `complete`: an archived round has no reveal button, so telling
     // anyone it is waiting to be revealed is the same wrongness statusPill
@@ -1017,11 +1115,11 @@ function renderCreate() {
     <form class="card form" id="create-form" data-testid="round-form">
       <div class="field">
         <label for="title">Title</label>
-        <input id="title" name="title" data-testid="field-title" placeholder="The Beast of Maple Street" required />
+        <input id="title" name="title" data-testid="field-title" placeholder="The Beast of Maple Street" value="${esc(createDraft.title)}" required />
       </div>
       <div class="field">
         <label for="theme">Theme <span class="muted tiny" style="text-transform:none">(optional)</span></label>
-        <input id="theme" name="theme" data-testid="field-theme" placeholder="A creature nobody has seen" />
+        <input id="theme" name="theme" data-testid="field-theme" placeholder="A creature nobody has seen" value="${esc(createDraft.theme)}" />
       </div>
       <div class="field">
         <p class="muted tiny">Anyone in the household can add a panel, one each, in whatever order people are ready. The drawing is done when everyone has drawn — or whenever you decide to reveal it.</p>

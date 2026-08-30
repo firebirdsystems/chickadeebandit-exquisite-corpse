@@ -200,7 +200,7 @@
         },
         {
           "action": "expectText",
-          "text": "2 panels drawn \u00b7 everyone has drawn",
+          "text": "2 panels drawn · everyone has drawn",
           "selector": "[data-testid=\"panel-progress\"]",
           "as": "host"
         },
@@ -461,6 +461,79 @@
           "text": "Something with too many legs",
           "selector": "[data-testid=\"panel-progress\"]",
           "as": "host"
+        }
+      ]
+    },
+    {
+      "name": "a drawing whose host has left the household is named as such and takes no more panels",
+      "members": {
+        "artist": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, ?, 'everyone', 'open', 300, '', ?, datetime('now'), 0)",
+          "params": [
+            "ui-r5",
+            "Abandoned Beast",
+            "Its host moved out",
+            "Departed Host"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, 'departed-member', ?, 0, '', ?, datetime('now'))",
+          "params": [
+            "ui-s5",
+            "ui-r5",
+            "Departed Host",
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at) VALUES (?, ?, 'departed-member', 0, ?, datetime('now'))",
+          "params": [
+            "ui-h5",
+            "ui-r5",
+            "[{\"x\": 0.35, \"color\": \"#7c3aed\"}]"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "artist"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r5\"]",
+          "as": "artist"
+        },
+        {
+          "action": "expectText",
+          "selector": "[data-round-id=\"ui-r5\"] [data-testid=\"round-status\"]",
+          "text": "Host left",
+          "as": "artist"
+        },
+        {
+          "action": "click",
+          "selector": "[data-round-id=\"ui-r5\"]",
+          "as": "artist"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"round-closed\"]",
+          "as": "artist"
+        },
+        {
+          "action": "expectText",
+          "selector": "[data-testid=\"round-closed\"]",
+          "text": "can't be revealed",
+          "as": "artist"
+        },
+        {
+          "action": "expectHidden",
+          "selector": "[data-testid=\"draw-canvas\"]",
+          "as": "artist"
         }
       ]
     }

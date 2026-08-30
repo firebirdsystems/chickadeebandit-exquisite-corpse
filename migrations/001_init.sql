@@ -2,17 +2,32 @@
 --
 -- rounds:   the collaborative canvas. owner_or_visibility (write_owner_only) so
 --           everyone reads but only the host writes — the host is the only one
---           who can flip status to 'revealed'. turn_order is an immutable JSON
---           array of member ids set at creation; the current turn is derived
---           from how many segments have been submitted (never a mutable pointer).
+--           who can flip status to 'revealed'. Adults get no bypass, by design:
+--           dropping write_owner_only would let any adult reveal a drawing they
+--           had no part in, releasing every artist's sealed panel. The cost is
+--           that a host who LEAVES the household leaves a round nobody can ever
+--           reveal — member_references empties created_by_id, the app then names
+--           that state and stops inviting panels into it, and retention retires
+--           the row on the normal schedule.
+--
+--           turn_order is DEAD. It held a fixed A-then-B-then-C order and the
+--           app derived "whose turn is it" from how many segments had been
+--           submitted — which is the bug this app was built with. A member's
+--           SELECT on `segments` returns only their OWN row while the round is
+--           open (sealed_until), so that count read 0-or-1 for everyone and the
+--           Glance and the app disagreed about whose turn it was. There is no
+--           turn any more: anyone who hasn't drawn may draw, and round state is
+--           read from `handoffs`, which every participant can see. The column
+--           survives only because the hub does not permit removing a column;
+--           nothing writes or reads it, and its DEFAULT '[]' keeps the
+--           omitting INSERT legal.
 -- segments: each artist's hidden panel. sealed_until keeps a segment visible only
 --           to its own author until the parent round.status = 'revealed', at which
 --           point every member sees all of them. max_per_member enforces one
 --           panel per member per round; frozen_when locks panels once revealed.
---           NOTE: sealed_until has no turn gate (only inherit_visibility does), so
---           turn *order* is a client-side UX guard. That is safe: a panel is sealed
---           and one-per-member, so an out-of-turn submit leaks nothing and cannot
---           double-submit.
+--           NOTE: sealed_until has no server-side ordering gate, and needs none:
+--           a panel is sealed and one-per-member, so a submit issued straight at
+--           the DB leaks nothing and cannot double-submit.
 -- handoffs: the "edge peek" hand-off. Holds only low-information connector marks
 --           (x positions + colors where the previous artist's strokes cross the
 --           bottom edge) so the next artist can continue the lines. inherit_visibility
