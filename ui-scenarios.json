@@ -1,0 +1,428 @@
+{
+  "scenarios": [
+    {
+      "name": "an artist can add a panel to a round someone else started, without waiting for a turn",
+      "members": {
+        "host": "admin",
+        "artist": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, ?, 'everyone', ?, ?, 300, ?, ?, datetime('now'), 0)",
+          "params": [
+            "ui-r1",
+            "The Beast of Maple Street",
+            "A creature nobody has seen",
+            "open",
+            0,
+            "{{host}}",
+            "Host"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, ?, ?, '', ?, datetime('now'))",
+          "params": [
+            "ui-s1",
+            "ui-r1",
+            "{{host}}",
+            "Host",
+            0,
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+          "params": [
+            "ui-h1",
+            "ui-r1",
+            "{{host}}",
+            0,
+            "[{\"x\": 0.35, \"color\": \"#7c3aed\"}]"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "artist"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r1\"]",
+          "as": "artist"
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r1\"]",
+          "as": "artist"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"draw-canvas\"]",
+          "as": "artist"
+        },
+        {
+          "action": "expectVisible",
+          "selector": "[data-testid=\"submit-panel\"]",
+          "as": "artist"
+        },
+        {
+          "action": "expectNoText",
+          "text": "Not your turn",
+          "as": "artist"
+        },
+        {
+          "action": "expectNoText",
+          "text": "isn't taking panels",
+          "as": "artist"
+        },
+        {
+          "action": "expectText",
+          "text": "1 panel drawn",
+          "selector": "[data-testid=\"panel-progress\"]",
+          "as": "artist"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"artist-row\"][data-drawn=\"1\"]",
+          "count": 1,
+          "as": "artist"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"artist-row\"][data-drawn=\"0\"]",
+          "count": 1,
+          "as": "artist"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"reveal-panel\"]",
+          "count": 0,
+          "as": "artist"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"panel-sealed\"]",
+          "count": 0,
+          "as": "artist"
+        }
+      ]
+    },
+    {
+      "name": "a drawing that has hit its panel target stops taking panels",
+      "members": {
+        "host": "admin",
+        "artist": "adult",
+        "bystander": "child"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, ?, 'everyone', ?, ?, 300, ?, ?, datetime('now'), 0)",
+          "params": [
+            "ui-r2",
+            "Full Up",
+            "Two panels only",
+            "open",
+            2,
+            "{{host}}",
+            "Host"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, ?, ?, '', ?, datetime('now'))",
+          "params": [
+            "ui-s2a",
+            "ui-r2",
+            "{{host}}",
+            "Host",
+            0,
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+          "params": [
+            "ui-h2a",
+            "ui-r2",
+            "{{host}}",
+            0,
+            "[{\"x\": 0.35, \"color\": \"#7c3aed\"}]"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, ?, ?, '', ?, datetime('now'))",
+          "params": [
+            "ui-s2b",
+            "ui-r2",
+            "{{artist}}",
+            "Artist",
+            1,
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+          "params": [
+            "ui-h2b",
+            "ui-r2",
+            "{{artist}}",
+            1,
+            "[{\"x\": 0.35, \"color\": \"#7c3aed\"}]"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "bystander"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r2\"]",
+          "as": "bystander"
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r2\"]",
+          "as": "bystander"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"round-full\"]",
+          "as": "bystander"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"draw-canvas\"]",
+          "count": 0,
+          "as": "bystander"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"submit-panel\"]",
+          "count": 0,
+          "as": "bystander"
+        },
+        {
+          "action": "expectText",
+          "text": "2/2 panels drawn",
+          "selector": "[data-testid=\"panel-progress\"]",
+          "as": "bystander"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"reveal-round\"]",
+          "count": 0,
+          "as": "bystander"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"archive-round\"]",
+          "count": 0,
+          "as": "bystander"
+        }
+      ]
+    },
+    {
+      "name": "reveal shows every artist's panel to a member who drew only one of them",
+      "members": {
+        "host": "admin",
+        "artist": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, revealed_at, archived) VALUES (?, ?, ?, 'everyone', 'revealed', ?, 300, ?, ?, datetime('now'), datetime('now'), 0)",
+          "params": [
+            "ui-r3",
+            "The Finished Corpse",
+            "All done",
+            2,
+            "{{host}}",
+            "Host"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, ?, ?, '', ?, datetime('now'))",
+          "params": [
+            "ui-s3a",
+            "ui-r3",
+            "{{host}}",
+            "Hosty McHostface",
+            0,
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+          "params": [
+            "ui-h3a",
+            "ui-r3",
+            "{{host}}",
+            0,
+            "[{\"x\": 0.35, \"color\": \"#7c3aed\"}]"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, ?, ?, '', ?, datetime('now'))",
+          "params": [
+            "ui-s3b",
+            "ui-r3",
+            "{{artist}}",
+            "Arty McArtface",
+            1,
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__handoffs (id, round_id, member_id, position, connectors, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+          "params": [
+            "ui-h3b",
+            "ui-r3",
+            "{{artist}}",
+            1,
+            "[{\"x\": 0.35, \"color\": \"#7c3aed\"}]"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "artist"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r3\"]",
+          "as": "artist"
+        },
+        {
+          "action": "expectText",
+          "text": "Revealed",
+          "selector": "[data-testid=\"round-status\"]",
+          "as": "artist"
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r3\"]",
+          "as": "artist"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"reveal-gallery\"]",
+          "as": "artist"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"reveal-panel\"]",
+          "count": 2,
+          "as": "artist"
+        },
+        {
+          "action": "expectText",
+          "text": "Hosty McHostface",
+          "selector": "[data-testid=\"reveal-gallery\"]",
+          "as": "artist"
+        },
+        {
+          "action": "expectText",
+          "text": "Arty McArtface",
+          "selector": "[data-testid=\"reveal-gallery\"]",
+          "as": "artist"
+        }
+      ]
+    },
+    {
+      "name": "starting a drawing takes a panel target and no artist list, and persists",
+      "members": {
+        "member": "adult"
+      },
+      "steps": [
+        {
+          "action": "open"
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid=\"new-round\"]"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"round-form\"]"
+        },
+        {
+          "action": "fill",
+          "selector": "[data-testid=\"field-title\"]",
+          "value": "Three Panel Beast"
+        },
+        {
+          "action": "fill",
+          "selector": "[data-testid=\"field-theme\"]",
+          "value": "Something with too many legs"
+        },
+        {
+          "action": "fill",
+          "selector": "[data-testid=\"field-panel-target\"]",
+          "value": "3"
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid=\"round-submit\"]"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"draw-canvas\"]"
+        },
+        {
+          "action": "expectText",
+          "text": "0/3 panels drawn",
+          "selector": "[data-testid=\"panel-progress\"]"
+        },
+        {
+          "action": "reload"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"round-card\"]"
+        },
+        {
+          "action": "expectCount",
+          "selector": "[data-testid=\"round-card\"]",
+          "count": 1
+        },
+        {
+          "action": "expectText",
+          "text": "Three Panel Beast",
+          "selector": "[data-testid=\"round-list\"]"
+        },
+        {
+          "action": "expectText",
+          "text": "Add your panel",
+          "selector": "[data-testid=\"round-status\"]"
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid=\"round-card\"]"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"panel-progress\"]"
+        },
+        {
+          "action": "expectText",
+          "text": "0/3 panels drawn",
+          "selector": "[data-testid=\"panel-progress\"]"
+        },
+        {
+          "action": "expectText",
+          "text": "Something with too many legs",
+          "selector": "[data-testid=\"panel-progress\"]"
+        }
+      ]
+    }
+  ]
+}

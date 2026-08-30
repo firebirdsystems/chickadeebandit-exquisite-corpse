@@ -1,150 +1,215 @@
 import { describe, it, expect } from "vitest";
 import {
-  parseOrder, orderedSegments, deriveTurn, mySegment, isParticipant,
-  canSubmit, positionFor, canManageRound, canReveal, computeConnectors, searchableFields,
+  panelCount, nextPosition, panelTarget, roundProgress, artistIds,
+  orderedSegments, mySegment, canSubmit, canManageRound, canReveal,
+  lastConnectors, computeConnectors, searchableFields,
 } from "../src/logic.js";
 
 const ALEX = { id: "m-alex", name: "Alex", role: "adult" };
 const CASEY = { id: "m-casey", name: "Casey", role: "child" };
 const RILEY = { id: "m-riley", name: "Riley", role: "child" };
-const OUTSIDER = { id: "m-out", name: "Sam", role: "adult" };
 
 function round(overrides = {}) {
   return {
-    id: "r1", status: "open", archived: 0,
-    turn_order: JSON.stringify(["m-alex", "m-casey", "m-riley"]),
+    id: "r1", status: "open", archived: 0, panel_target: 0,
     created_by_id: "m-alex", panel_height: 300, ...overrides,
   };
 }
 function seg(member, position, roundId = "r1") {
   return { id: `s-${member}`, round_id: roundId, member_id: member, position, created_at: `2026-01-0${position + 1}` };
 }
+function ho(member, position, roundId = "r1", connectors = []) {
+  return {
+    id: `h-${member}`, round_id: roundId, member_id: member, position,
+    connectors: JSON.stringify(connectors), created_at: `2026-01-0${position + 1}`,
+  };
+}
 
-describe("parseOrder", () => {
-  it("parses a JSON string array", () => {
-    expect(parseOrder(round())).toEqual(["m-alex", "m-casey", "m-riley"]);
+/**
+ * What the server actually hands a member for an OPEN round: every hand-off
+ * (inherit_visibility), but only their OWN segment (sealed_until). Every test
+ * below builds its state through this, because building it any other way is
+ * what hid the original bug — the suite passed a fully-populated segment array
+ * that no member ever receives, so a turn derived from `segments.length`
+ * looked correct in the test and was 0-for-everyone in the browser.
+ */
+function asSeenBy(me, allSegments, allHandoffs) {
+  return {
+    segments: allSegments.filter((s) => s.member_id === me.id),
+    handoffs: allHandoffs,
+  };
+}
+
+describe("panelCount / nextPosition — counted from the visible hand-offs", () => {
+  it("counts every artist's panel, not just the reader's own", () => {
+    const handoffs = [ho("m-alex", 0), ho("m-casey", 1)];
+    expect(panelCount(handoffs, "r1")).toBe(2);
+    expect(nextPosition(handoffs, "r1")).toBe(2);
+  });
+
+  it("ignores other rounds", () => {
+    expect(panelCount([ho("m-alex", 0), ho("m-casey", 0, "r2")], "r1")).toBe(1);
+  });
+
+  it("is 0 on a fresh round", () => {
+    expect(nextPosition([], "r1")).toBe(0);
+  });
+});
+
+describe("panelTarget", () => {
+  it("reads a positive integer target", () => expect(panelTarget(round({ panel_target: 4 }))).toBe(4));
+  it("treats 0, absent, negative and junk as open-ended", () => {
+    expect(panelTarget(round({ panel_target: 0 }))).toBe(0);
+    expect(panelTarget({})).toBe(0);
+    expect(panelTarget(round({ panel_target: -3 }))).toBe(0);
+    expect(panelTarget(round({ panel_target: "abc" }))).toBe(0);
+  });
+  it("survives the string a DB read hands back", () => {
+    expect(panelTarget(round({ panel_target: "5" }))).toBe(5);
+  });
+});
+
+describe("roundProgress", () => {
+  it("is never complete without a target — the host decides when it's done", () => {
+    const p = roundProgress(round({ panel_target: 0 }), [ho("m-alex", 0), ho("m-casey", 1)]);
+    expect(p).toEqual({ drawn: 2, target: 0, complete: false });
+  });
+  it("completes once the target is met", () => {
+    expect(roundProgress(round({ panel_target: 2 }), [ho("m-alex", 0)]).complete).toBe(false);
+    expect(roundProgress(round({ panel_target: 2 }), [ho("m-alex", 0), ho("m-casey", 1)]).complete).toBe(true);
+  });
+});
+
+// ── The regression this whole rewrite exists for ─────────────────────────────
+describe("canSubmit — under the sealing the server actually applies", () => {
+  it("lets a second artist draw once the host has, though the host's panel is invisible to them", () => {
+    const allSegments = [seg("m-alex", 0)];
+    const allHandoffs = [ho("m-alex", 0)];
+
+    const casey = asSeenBy(CASEY, allSegments, allHandoffs);
+    expect(casey.segments).toHaveLength(0); // sealed — this is the whole trap
+    expect(canSubmit(round(), casey.segments, casey.handoffs, CASEY)).toBe(true);
+
+    const riley = asSeenBy(RILEY, allSegments, allHandoffs);
+    expect(canSubmit(round(), riley.segments, riley.handoffs, RILEY)).toBe(true);
+  });
+
+  it("lets anyone open a fresh round — the host has no reserved first slot", () => {
+    expect(canSubmit(round(), [], [], CASEY)).toBe(true);
+    expect(canSubmit(round(), [], [], ALEX)).toBe(true);
+  });
+
+  it("refuses a second panel from the same artist", () => {
+    const view = asSeenBy(ALEX, [seg("m-alex", 0)], [ho("m-alex", 0)]);
+    expect(canSubmit(round(), view.segments, view.handoffs, ALEX)).toBe(false);
+  });
+
+  it("refuses once the host's target is met", () => {
+    const handoffs = [ho("m-alex", 0), ho("m-casey", 1)];
+    expect(canSubmit(round({ panel_target: 2 }), [], handoffs, RILEY)).toBe(false);
+    expect(canSubmit(round({ panel_target: 3 }), [], handoffs, RILEY)).toBe(true);
+  });
+
+  it("refuses on a revealed, archived, or memberless round", () => {
+    expect(canSubmit(round({ status: "revealed" }), [], [], ALEX)).toBe(false);
+    expect(canSubmit(round({ archived: 1 }), [], [], ALEX)).toBe(false);
+    expect(canSubmit(round(), [], [], null)).toBe(false);
+  });
+});
+
+describe("artistIds — the roster an artist may legitimately see", () => {
+  it("lists who has drawn, in claim order", () => {
+    expect(artistIds([ho("m-casey", 1), ho("m-alex", 0)], "r1")).toEqual(["m-alex", "m-casey"]);
+  });
+  it("is the reveal audience, which the sealed segments could never supply", () => {
+    const handoffs = [ho("m-alex", 0), ho("m-casey", 1)];
+    expect(artistIds(handoffs, "r1").filter((id) => id !== ALEX.id)).toEqual(["m-casey"]);
+  });
+});
+
+describe("lastConnectors — the marks the next artist continues", () => {
+  it("takes the highest position, whatever order the rows arrive in", () => {
+    const handoffs = [
+      ho("m-casey", 1, "r1", [{ x: 0.5, color: "#f00" }]),
+      ho("m-alex", 0, "r1", [{ x: 0.1, color: "#00f" }]),
+    ];
+    expect(lastConnectors(handoffs, "r1")).toEqual([{ x: 0.5, color: "#f00" }]);
+  });
+  it("is empty for the first panel", () => expect(lastConnectors([], "r1")).toEqual([]));
+  it("is safe on garbage connectors", () => {
+    expect(lastConnectors([{ round_id: "r1", position: 0, connectors: "not json" }], "r1")).toEqual([]);
   });
   it("accepts an already-parsed array", () => {
-    expect(parseOrder({ turn_order: ["a", "b"] })).toEqual(["a", "b"]);
-  });
-  it("is safe on garbage", () => {
-    expect(parseOrder({ turn_order: "not json" })).toEqual([]);
-    expect(parseOrder(null)).toEqual([]);
+    expect(lastConnectors([{ round_id: "r1", position: 0, connectors: [{ x: 0.2 }] }], "r1")).toEqual([{ x: 0.2 }]);
   });
 });
 
-describe("deriveTurn", () => {
-  it("first artist is up with no panels in", () => {
-    const t = deriveTurn(round(), []);
-    expect(t).toMatchObject({ done: 0, total: 3, complete: false, currentIndex: 0, currentMemberId: "m-alex" });
+describe("canReveal — host only, and counted from hand-offs", () => {
+  it("is true for the host once any panel is in, even though the panels are sealed to them", () => {
+    const view = asSeenBy(ALEX, [seg("m-casey", 0)], [ho("m-casey", 0)]);
+    expect(view.segments).toHaveLength(0);
+    expect(canReveal(round(), view.handoffs, ALEX)).toBe(true);
   });
-  it("advances as panels accumulate (derived, not a stored pointer)", () => {
-    const t = deriveTurn(round(), [seg("m-alex", 0)]);
-    expect(t.currentMemberId).toBe("m-casey");
-    expect(t.currentIndex).toBe(1);
+  it("is false with nothing drawn, and false for a non-host", () => {
+    expect(canReveal(round(), [], ALEX)).toBe(false);
+    expect(canReveal(round(), [ho("m-casey", 0)], CASEY)).toBe(false);
   });
-  it("is complete when every slot is filled", () => {
-    const t = deriveTurn(round(), [seg("m-alex", 0), seg("m-casey", 1), seg("m-riley", 2)]);
-    expect(t).toMatchObject({ complete: true, currentIndex: -1, currentMemberId: null });
-  });
-  it("only counts segments for this round", () => {
-    const t = deriveTurn(round(), [seg("m-alex", 0, "other")]);
-    expect(t.done).toBe(0);
+  it("is false once revealed or archived", () => {
+    expect(canReveal(round({ status: "revealed" }), [ho("m-alex", 0)], ALEX)).toBe(false);
+    expect(canReveal(round({ archived: 1 }), [ho("m-alex", 0)], ALEX)).toBe(false);
   });
 });
 
-describe("canSubmit — mirrors the sealed_until turn/one-per-member rules", () => {
-  it("true only for the member whose turn it is", () => {
-    expect(canSubmit(round(), [], ALEX)).toBe(true);
-    expect(canSubmit(round(), [], CASEY)).toBe(false); // not their turn yet
-  });
-  it("false once the member has already drawn (max_per_member)", () => {
-    const segs = [seg("m-alex", 0)];
-    expect(canSubmit(round(), segs, ALEX)).toBe(false);
-    expect(canSubmit(round(), segs, CASEY)).toBe(true);
-  });
-  it("false on revealed or archived rounds", () => {
-    expect(canSubmit(round({ status: "revealed" }), [], ALEX)).toBe(false);
-    expect(canSubmit(round({ archived: 1 }), [], ALEX)).toBe(false);
-  });
-  it("false for a non-member / missing caller", () => {
-    expect(canSubmit(round(), [], OUTSIDER)).toBe(false);
-    expect(canSubmit(round(), [], null)).toBe(false);
-  });
-});
-
-describe("positionFor", () => {
-  it("is the member's fixed slot in the immutable turn order", () => {
-    expect(positionFor(round(), CASEY)).toBe(1);
-    expect(positionFor(round(), RILEY)).toBe(2);
-  });
-  it("is -1 for a non-participant", () => {
-    expect(positionFor(round(), OUTSIDER)).toBe(-1);
-  });
-});
-
-describe("host controls mirror owner_or_visibility write_owner_only", () => {
-  it("only the creator manages the round — no adult bypass", () => {
+describe("canManageRound", () => {
+  it("is the creator only — an adult gets no bypass", () => {
     expect(canManageRound(round(), ALEX)).toBe(true);
-    expect(canManageRound(round(), OUTSIDER)).toBe(false); // another adult
     expect(canManageRound(round(), CASEY)).toBe(false);
-  });
-  it("host can reveal an open round with at least one panel", () => {
-    expect(canReveal(round(), [], ALEX)).toBe(false); // nothing drawn yet
-    expect(canReveal(round(), [seg("m-alex", 0)], ALEX)).toBe(true);
-    expect(canReveal(round({ status: "revealed" }), [seg("m-alex", 0)], ALEX)).toBe(false);
-  });
-  it("a non-host can never reveal", () => {
-    expect(canReveal(round(), [seg("m-alex", 0)], CASEY)).toBe(false);
+    expect(canManageRound(round(), null)).toBe(false);
   });
 });
 
-describe("orderedSegments / mySegment / isParticipant", () => {
-  it("orders by position then created_at", () => {
+describe("mySegment / orderedSegments", () => {
+  it("finds my own panel and nobody else's", () => {
+    const segs = [seg("m-alex", 0)];
+    expect(mySegment(segs, round(), ALEX)?.id).toBe("s-m-alex");
+    expect(mySegment(segs, round(), CASEY)).toBeNull();
+    expect(mySegment(segs, round(), null)).toBeNull();
+  });
+  it("stacks the revealed panels by position", () => {
     const segs = [seg("m-riley", 2), seg("m-alex", 0), seg("m-casey", 1)];
     expect(orderedSegments(segs, "r1").map((s) => s.member_id)).toEqual(["m-alex", "m-casey", "m-riley"]);
   });
-  it("finds my own segment", () => {
-    expect(mySegment([seg("m-alex", 0)], round(), ALEX)?.member_id).toBe("m-alex");
-    expect(mySegment([seg("m-alex", 0)], round(), CASEY)).toBeNull();
-  });
-  it("knows who is on the roster", () => {
-    expect(isParticipant(round(), CASEY)).toBe(true);
-    expect(isParticipant(round(), OUTSIDER)).toBe(false);
+  it("breaks a position tie by created_at — two artists can claim the same slot", () => {
+    const first = { ...seg("m-casey", 1), created_at: "2026-01-02T10:00:00Z" };
+    const second = { ...seg("m-riley", 1), created_at: "2026-01-02T10:00:05Z" };
+    expect(orderedSegments([second, first], "r1").map((s) => s.member_id)).toEqual(["m-casey", "m-riley"]);
   });
 });
 
-describe("computeConnectors — low-info hand-off only", () => {
-  const W = 200, H = 300;
-  it("captures normalized x + color of strokes crossing the bottom band", () => {
-    const strokes = [{ color: "#dc2626", points: [{ x: 50, y: 10 }, { x: 60, y: 290 }] }];
-    const c = computeConnectors(strokes, W, H, 26);
-    expect(c).toHaveLength(1);
-    expect(c[0].color).toBe("#dc2626");
-    expect(c[0].x).toBeCloseTo(0.3, 5); // 60/200
+describe("computeConnectors", () => {
+  const W = 200, H = 100;
+  it("takes the lowest point of each stroke that reaches the seam band", () => {
+    const strokes = [{ color: "#111827", points: [{ x: 20, y: 10 }, { x: 40, y: 95 }] }];
+    expect(computeConnectors(strokes, W, H, 24)).toEqual([{ x: 0.2, color: "#111827" }]);
   });
-  it("ignores strokes that never reach the bottom band", () => {
-    const strokes = [{ color: "#000", points: [{ x: 20, y: 5 }, { x: 30, y: 40 }] }];
-    expect(computeConnectors(strokes, W, H, 26)).toHaveLength(0);
+  it("ignores strokes that never reach the band, and eraser strokes", () => {
+    expect(computeConnectors([{ color: "#000", points: [{ x: 10, y: 10 }] }], W, H, 24)).toEqual([]);
+    expect(computeConnectors([{ color: "#000", erase: true, points: [{ x: 10, y: 99 }] }], W, H, 24)).toEqual([]);
   });
-  it("ignores eraser strokes and empty stroke lists", () => {
-    expect(computeConnectors([{ erase: true, color: "#fff", points: [{ x: 10, y: 299 }] }], W, H)).toHaveLength(0);
-    expect(computeConnectors([], W, H)).toHaveLength(0);
+  it("clamps x into 0..1 and caps how many marks leak", () => {
+    const strokes = Array.from({ length: 20 }, () => ({ color: "#000", points: [{ x: 400, y: 99 }] }));
+    const out = computeConnectors(strokes, W, H, 24, 14);
+    expect(out).toHaveLength(14);
+    expect(out.every((c) => c.x === 1)).toBe(true);
   });
-  it("caps the number of connectors", () => {
-    const strokes = Array.from({ length: 40 }, (_, i) => ({ color: "#000", points: [{ x: i, y: 295 }] }));
-    expect(computeConnectors(strokes, W, H, 26, 14).length).toBeLessThanOrEqual(14);
-  });
-  it("clamps x into 0..1", () => {
-    const strokes = [{ color: "#000", points: [{ x: 500, y: 295 }] }];
-    expect(computeConnectors(strokes, W, H)[0].x).toBe(1);
+  it("is empty without canvas dimensions", () => {
+    expect(computeConnectors([{ color: "#000", points: [{ x: 1, y: 99 }] }], 0, H)).toEqual([]);
   });
 });
 
 describe("searchableFields", () => {
-  it("matches on the theme, which is how a drawing is remembered", () => {
-    const fields = searchableFields({ title: "Round 4", theme: "under the sea", created_by_name: "Mia" });
-    expect(fields).toContain("under the sea");
-    expect(fields).toContain("Mia");
+  it("matches on title, theme and host", () => {
+    expect(searchableFields({ title: "Beast", theme: "Creature", created_by_name: "Alex" }))
+      .toEqual(["Beast", "Creature", "Alex"]);
   });
 });

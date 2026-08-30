@@ -5,8 +5,8 @@
     "shared_space"
   ],
   "name": "Exquisite Corpse",
-  "version": "1.1.0",
-  "description": "The classic collaborative drawing game, played async. Each member adds a hidden segment seeing only the previous artist's edge marks; every segment stays sealed until the host reveals the finished, absurd creation to everyone at once.",
+  "version": "1.2.0",
+  "description": "The classic collaborative drawing game, played async. Add a panel whenever you're ready \u2014 you see only the edge marks left by the panel above yours, and every panel stays sealed until the host reveals the finished, absurd creation to everyone at once.",
   "entrypoint": "index.html",
   "runtime": "static",
   "category": "family",
@@ -137,7 +137,7 @@
   "glance": {
     "source": {
       "kind": "sql",
-      "query": "SELECT COUNT(*) AS n FROM app_exquisite_corpse__rounds r LEFT JOIN app_exquisite_corpse__segments s ON s.round_id = r.id WHERE r.archived = 0 AND r.status = 'open' AND s.id IS NULL LIMIT 1"
+      "query": "SELECT COUNT(*) AS n FROM app_exquisite_corpse__rounds r LEFT JOIN app_exquisite_corpse__segments s ON s.round_id = r.id LEFT JOIN app_exquisite_corpse__handoffs f ON f.round_id = r.id AND r.panel_target > 0 AND f.position >= r.panel_target - 1 WHERE r.archived = 0 AND r.status = 'open' AND s.id IS NULL AND f.id IS NULL LIMIT 1"
     },
     "display": {
       "template": "badge",

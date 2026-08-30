@@ -142,8 +142,9 @@
 <script type="module">
 import { esc, isAdult, memberColor, initial, hubConfirm, hubAlert, createFilesHelper, sendHubNotification, hubAppUrl, searchMatch } from "/hub-sdk.js";
 import {
-  parseOrder, orderedSegments, deriveTurn, mySegment, isParticipant,
-  canSubmit as _canSubmit, positionFor, canManageRound as _canManage,
+  orderedSegments, mySegment, nextPosition,
+  roundProgress, artistIds, lastConnectors,
+  canSubmit as _canSubmit, canManageRound as _canManage,
   canReveal as _canReveal, computeConnectors, searchableFields,
 } from "./logic.js";
 
@@ -181,20 +182,13 @@ let penSize = SIZES[1];
 let canvasRoundKey = null; // resets strokes when switching canvases
 
 // thin wrappers binding pure logic to the current member
-function canSubmit(round) { return _canSubmit(round, segments, currentMember); }
+function canSubmit(round) { return _canSubmit(round, segments, handoffs, currentMember); }
 function canManageRound(round) { return _canManage(round, currentMember); }
-function canReveal(round) { return _canReveal(round, segments, currentMember); }
+function canReveal(round) { return _canReveal(round, handoffs, currentMember); }
+function progressOf(round) { return roundProgress(round, handoffs); }
 
 function nowIso() { return new Date().toISOString(); }
 function uid(prefix) { return `${prefix}-${crypto.randomUUID()}`; }
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
 function fmtWhen(v) {
   if (!v) return "";
   try { return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(v)); }
@@ -239,11 +233,11 @@ function seedDemo() {
   rounds = [{
     id: rid, title: "The Beast of Maple Street", theme: "A creature nobody has seen",
     visibility: "everyone", status: "open",
-    turn_order: JSON.stringify(["demo-1", "demo-3", "demo-2", "demo-4"]),
+    panel_target: 4,
     panel_height: 300, created_by_id: "demo-1", created_by_name: "Alex",
     created_at: nowIso(), revealed_at: null, archived: 0,
   }];
-  // Alex (demo-1) already drew the head; current turn is Casey (demo-3).
+  // Alex (demo-1) already drew the head; anyone else who is ready may go next.
   segments = [{
     id: "demo-seg-1", round_id: rid, member_id: "demo-1", member_name: "Alex",
     position: 0, file_id: "", file_url: placeholderPanel("Head", "#ede9fe"), created_at: nowIso(),
@@ -292,47 +286,53 @@ function showNotice(m) { notice = m; error = ""; render(); }
 async function createRound(form) {
   const title = form.title.value.trim();
   const theme = form.theme.value.trim();
-  const picked = new Set([...form.querySelectorAll("input[name='participant']:checked")].map((i) => i.value));
-  // The host always draws first; everyone else is passed the drawing in a
-  // random order so it isn't the same line-up every time.
-  const others = shuffle(members.filter((m) => m.id !== currentMember.id && picked.has(m.id)).map((m) => m.id));
-  const order = [currentMember.id, ...others];
+  const rawTarget = Number(form.panel_target.value);
+  const target = Number.isFinite(rawTarget) && rawTarget > 0 ? Math.floor(rawTarget) : 0;
   if (!title) return showError("Give your drawing a title.");
-  if (order.length < 2) return showError("Pick at least one other artist to pass the drawing to.");
 
   const round = {
     id: uid("round"), title, theme, visibility: "everyone", status: "open",
-    turn_order: JSON.stringify(order), panel_height: 300,
+    panel_target: target, panel_height: 300,
     created_by_id: currentMember.id, created_by_name: currentMember.name,
     created_at: nowIso(), revealed_at: null, archived: 0,
   };
   try {
     await dbq(
       `INSERT INTO app_exquisite_corpse__rounds
-         (id, title, theme, visibility, status, turn_order, panel_height, created_by_id, created_by_name, created_at, archived)
+         (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived)
        VALUES (?, ?, ?, 'everyone', 'open', ?, ?, ?, ?, ?, 0)`,
-      [round.id, round.title, round.theme, round.turn_order, round.panel_height, round.created_by_id, round.created_by_name, round.created_at]
+      [round.id, round.title, round.theme, round.panel_target, round.panel_height, round.created_by_id, round.created_by_name, round.created_at]
     );
     rounds = [round, ...rounds];
     selectedRoundId = round.id;
     view = "list";
-    showNotice("Drawing started — first artist is up.");
-    const first = order[0];
+    showNotice("Drawing started — anyone can add the first panel.");
     publish("exquisite_corpse.round_created", round.id, { title });
-    if (first && first !== currentMember.id) {
-      notify([first], `You're up: ${title}`, `${currentMember.name} started a drawing and it's your turn to begin.`, round.id);
+    // Everyone else is invited, because everyone else may draw. There is no
+    // first artist to single out any more.
+    const audience = members.map((m) => m.id).filter((id) => id !== currentMember.id);
+    if (audience.length) {
+      notify(audience, `New drawing: ${title}`, `${currentMember.name} started a drawing — add a panel whenever you're ready.`, round.id);
     }
   } catch (e) { showError(e.message); }
 }
 
 async function submitSegment() {
   const round = selectedRound();
-  if (!round || !canSubmit(round)) return showError("It isn't your turn right now.");
+  if (!round || !canSubmit(round)) return showError("You can't add a panel to this drawing.");
   const canvas = document.getElementById("draw");
   if (!canvas) return;
   if (!strokes.length) return showError("Draw something before passing it on.");
 
-  const pos = positionFor(round, currentMember);
+  // Claim the next free slot as of right now. Two artists submitting at the
+  // same moment can both land on it; they then sort by created_at and one of
+  // them continues marks from the panel that ended up beside theirs rather
+  // than above it. In a game about seams not lining up, that is a cosmetic
+  // cost, and it is the cheaper one: the segment and the hand-off are two
+  // separate INSERTs, so a UNIQUE(round_id, position) guard could take the
+  // second and leave the artist's drawing stranded behind the one-panel-per-
+  // member rule with no way to retry.
+  const pos = nextPosition(handoffs, round.id);
   const connectors = computeConnectors(strokes, canvas.clientWidth, round.panel_height, BAND);
   const btn = document.getElementById("submit-btn");
   if (btn) { btn.disabled = true; btn.textContent = "Passing it on…"; }
@@ -375,18 +375,15 @@ async function submitSegment() {
     strokes = [];
     canvasRoundKey = null;
 
-    const turn = deriveTurn(round, segments);
+    const { complete } = progressOf(round);
     publish("exquisite_corpse.segment_added", round.id, { position: pos });
-    if (turn.complete) {
-      showNotice("Your panel is in — every artist has drawn. The host can reveal it now!");
+    if (complete) {
+      showNotice("Your panel is in — the drawing has hit its target. The host can reveal it now!");
       if (round.created_by_id !== currentMember.id) {
-        notify([round.created_by_id], `Ready to reveal: ${round.title}`, "Every artist has drawn their panel. Tap to reveal the finished piece.", round.id);
+        notify([round.created_by_id], `Ready to reveal: ${round.title}`, "The drawing has all the panels it was after. Tap to reveal the finished piece.", round.id);
       }
     } else {
-      showNotice("Your panel is sealed and passed on.");
-      if (turn.currentMemberId) {
-        notify([turn.currentMemberId], `Your turn: ${round.title}`, `${currentMember.name} passed the drawing to you.`, round.id);
-      }
+      showNotice("Your panel is sealed. Someone else can pick it up whenever they're ready.");
     }
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = "Submit & pass on"; }
@@ -397,14 +394,17 @@ async function submitSegment() {
 async function revealRound(roundId) {
   const round = rounds.find((r) => r.id === roundId);
   if (!round || !canManageRound(round)) return showError("Only the host can reveal this drawing.");
-  const turn = deriveTurn(round, segments);
+  const { drawn, target, complete } = progressOf(round);
+  // Three cases, because an open-ended drawing (no target) is never "early":
+  // it is done when the host says it is.
+  const early = target > 0 && !complete;
   const ok = await hubConfirm({
-    message: turn.complete ? "Reveal the finished drawing?" : "Reveal now, before everyone has drawn?",
-    description: turn.complete
-      ? "Every artist's panel will be shown to the whole household at once."
-      : `Only ${turn.done} of ${turn.total} artists have drawn. Unfinished panels will simply be missing.`,
+    message: early ? "Reveal now, before the drawing is full?" : "Reveal the finished drawing?",
+    description: early
+      ? `Only ${drawn} of ${target} panels are in. The rest will simply be missing.`
+      : `All ${drawn} ${drawn === 1 ? "panel" : "panels"} will be shown to the whole household at once.`,
     confirmLabel: "Reveal",
-    destructive: !turn.complete,
+    destructive: early,
   });
   if (!ok) return;
   try {
@@ -414,7 +414,7 @@ async function revealRound(roundId) {
     if (idx !== -1) rounds[idx] = { ...rounds[idx], status: "revealed", revealed_at: at };
     showNotice("Revealed! Behold the exquisite corpse.");
     publish("exquisite_corpse.round_revealed", roundId, { title: round.title });
-    const audience = parseOrder(round).filter((id) => id !== currentMember.id);
+    const audience = artistIds(handoffs, roundId).filter((id) => id !== currentMember.id);
     if (audience.length) notify(audience, `Revealed: ${round.title}`, "The collaborative drawing is complete — come see it!", roundId);
   } catch (e) { showError(e.message); }
 }
@@ -449,14 +449,7 @@ function notify(audience, title, body, roundId) {
 
 // ── Canvas ────────────────────────────────────────────────────────────────────
 function ghostConnectorsFor(round) {
-  const pos = positionFor(round, currentMember);
-  if (pos <= 0) return [];
-  const prev = handoffs.find((h) => h.round_id === round.id && Number(h.position) === pos - 1);
-  if (!prev) return [];
-  try {
-    const parsed = typeof prev.connectors === "string" ? JSON.parse(prev.connectors) : prev.connectors;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
+  return lastConnectors(handoffs, round.id);
 }
 
 function redrawCanvas(round) {
@@ -502,8 +495,7 @@ function drawStroke(ctx, stroke) {
 function setupCanvas(round) {
   const canvas = document.getElementById("draw");
   if (!canvas) return;
-  const key = `${round.id}:${positionFor(round, currentMember)}`;
-  if (canvasRoundKey !== key) { strokes = []; canvasRoundKey = key; }
+  if (canvasRoundKey !== round.id) { strokes = []; canvasRoundKey = round.id; }
 
   const w = canvas.clientWidth, h = round.panel_height;
   const dpr = window.devicePixelRatio || 1;
@@ -559,17 +551,18 @@ function renderMessages() {
 }
 
 function statusPill(round) {
-  const turn = deriveTurn(round, segments);
-  if (round.status === "revealed") return `<span class="pill good">Revealed</span>`;
-  if (canSubmit(round)) return `<span class="pill info">Your turn</span>`;
-  return `<span class="pill warn">${turn.done}/${turn.total} drawn</span>`;
+  const { drawn, target } = progressOf(round);
+  if (round.status === "revealed") return `<span class="pill good" data-testid="round-status">Revealed</span>`;
+  if (canSubmit(round)) return `<span class="pill info" data-testid="round-status">Add your panel</span>`;
+  const label = target > 0 ? `${drawn}/${target} panels` : `${drawn} ${drawn === 1 ? "panel" : "panels"}`;
+  return `<span class="pill warn" data-testid="round-status">${label}</span>`;
 }
 
 function renderRoundCard(round) {
-  const turn = deriveTurn(round, segments);
-  const pct = turn.total ? Math.round((turn.done / turn.total) * 100) : 0;
+  const { drawn, target } = progressOf(round);
+  const pct = target > 0 ? Math.min(100, Math.round((drawn / target) * 100)) : 0;
   return `
-    <article class="card round-card" data-open="${esc(round.id)}">
+    <article class="card round-card" data-testid="round-card" data-round-id="${esc(round.id)}" data-open="${esc(round.id)}">
       <div class="head">
         <div>
           <div class="title">${esc(round.title)}</div>
@@ -577,7 +570,7 @@ function renderRoundCard(round) {
         </div>
         ${statusPill(round)}
       </div>
-      ${round.status === "revealed" ? "" : `<div class="progress" aria-hidden="true"><span style="width:${pct}%"></span></div>`}
+      ${round.status === "revealed" || target === 0 ? "" : `<div class="progress" aria-hidden="true"><span style="width:${pct}%"></span></div>`}
     </article>`;
 }
 
@@ -589,7 +582,7 @@ function renderList() {
         <h1>🎨 Exquisite Corpse</h1>
         <p class="muted tiny">Draw a panel, pass it on. Nobody sees the whole thing until the big reveal.</p>
       </div>
-      <button class="btn" data-view-create>Start one</button>
+      <button class="btn" data-testid="new-round" data-view-create>Start one</button>
     </div>
     ${renderMessages()}
     <div class="section-head">
@@ -599,8 +592,8 @@ function renderList() {
         <button class="btn btn-ghost btn-sm" data-refresh>Refresh</button>
       </div>
     </div>
-    ${rounds.length ? `<div class="search-row"><input id="search" class="search-input" type="search" placeholder="Search drawings…" aria-label="Search drawings" value="${esc(searchQ)}" /></div>` : ""}
-    <section class="stack" id="round-list">
+    ${rounds.length ? `<div class="search-row"><input id="search" class="search-input" type="search" data-testid="search-input" placeholder="Search drawings…" aria-label="Search drawings" value="${esc(searchQ)}" /></div>` : ""}
+    <section class="stack" id="round-list" data-testid="round-list">
       ${renderRoundList()}
     </section>`;
 }
@@ -621,22 +614,23 @@ document.addEventListener("input", (e) => {
   if (el) el.innerHTML = renderRoundList();
 });
 
+// Who has put a panel in, and who has not. Built from `handoffs` — the only
+// per-artist record an artist is allowed to read while the round is open. It
+// names people, never their drawings.
 function renderRoster(round) {
-  const turn = deriveTurn(round, segments);
-  const order = parseOrder(round);
+  const drawnIds = artistIds(handoffs, round.id);
+  const waiting = members.filter((m) => !drawnIds.includes(m.id));
+  const row = (id, done) => `
+    <div class="roster-row" data-testid="artist-row" data-member-id="${esc(id)}" data-drawn="${done ? "1" : "0"}">
+      <span class="dot ${done ? "done" : ""}"></span>
+      <span class="avatar" style="background:${esc(memberColor(id, members))}">${esc(initial(memberName(id)))}</span>
+      <span>${esc(memberName(id))}</span>
+      ${done ? `<span class="pill good tiny">drawn</span>` : `<span class="pill tiny">not yet</span>`}
+    </div>`;
   return `
-    <div class="roster">
-      ${order.map((id, i) => {
-        const done = i < turn.done;
-        const now = i === turn.currentIndex;
-        return `
-          <div class="roster-row ${now ? "now" : ""}">
-            <span class="dot ${done ? "done" : now ? "now" : ""}"></span>
-            <span class="avatar" style="background:${esc(memberColor(id, members))}">${esc(initial(memberName(id)))}</span>
-            <span>${esc(memberName(id))}</span>
-            ${done ? `<span class="pill good tiny">drawn</span>` : now ? `<span class="pill info tiny">drawing now</span>` : ""}
-          </div>`;
-      }).join("")}
+    <div class="roster" data-testid="artist-roster">
+      ${drawnIds.map((id) => row(id, true)).join("")}
+      ${waiting.map((m) => row(m.id, false)).join("")}
     </div>`;
 }
 
@@ -656,34 +650,30 @@ function renderToolbar() {
 }
 
 function renderPlay(round) {
-  const turn = deriveTurn(round, segments);
+  const { drawn, target, complete } = progressOf(round);
   const mine = mySegment(segments, round, currentMember);
-  const pos = positionFor(round, currentMember);
-  const iAmParticipant = isParticipant(round, currentMember);
 
   let body;
   if (canSubmit(round)) {
     const ghost = ghostConnectorsFor(round).length;
     body = `
-      ${pos > 0
-        ? `<div class="hint">You're picking up the drawing. The faint violet ticks at the top show where the previous artist's lines cross over — continue them, then draw the rest of your panel however you like.</div>`
+      ${drawn > 0
+        ? `<div class="hint">You're picking up the drawing. The faint violet ticks at the top show where the last artist's lines cross over — continue them, then draw the rest of your panel however you like.</div>`
         : `<div class="hint">You're starting the drawing! When you finish, leave a few lines running off the bottom edge — that's the only clue the next artist gets.</div>`}
-      <div class="canvas-wrap"><canvas id="draw"></canvas></div>
+      <div class="canvas-wrap"><canvas id="draw" data-testid="draw-canvas"></canvas></div>
       ${renderToolbar()}
       <div class="actions">
-        <button class="btn" id="submit-btn" data-submit>Submit & pass on</button>
+        <button class="btn" id="submit-btn" data-testid="submit-panel" data-submit>Submit & pass on</button>
         <span class="muted tiny">${ghost ? "Continue the violet ticks up top." : "Draw freely."}</span>
       </div>`;
   } else if (mine) {
     body = `
-      <div class="hint">Your panel is locked in and sealed — you'll see everyone's work when the host reveals it.</div>
+      <div class="hint" data-testid="panel-sealed">Your panel is locked in and sealed — you'll see everyone's work when the host reveals it.</div>
       <div class="gallery"><div class="panel"><img src="${esc(mine.file_url)}" alt="your panel" /><div class="panel-by">Your panel · position ${Number(mine.position) + 1}</div></div></div>`;
-  } else if (!iAmParticipant) {
-    body = `<div class="empty">You're not one of the artists on this drawing. You'll get to see it once it's revealed.</div>`;
-  } else if (turn.complete) {
-    body = `<div class="empty">Every panel is in. Waiting for ${esc(round.created_by_name)} to reveal the drawing.</div>`;
+  } else if (complete) {
+    body = `<div class="empty" data-testid="round-full">This drawing has all ${target} panels it was after. Waiting for ${esc(round.created_by_name)} to reveal it.</div>`;
   } else {
-    body = `<div class="empty">Not your turn yet — waiting on ${esc(memberName(turn.currentMemberId))}.</div>`;
+    body = `<div class="empty" data-testid="round-closed">This drawing isn't taking panels right now.</div>`;
   }
 
   return `
@@ -691,11 +681,11 @@ function renderPlay(round) {
       <div class="head">
         <div>
           <h1>${esc(round.title)}</h1>
-          <p class="muted">${round.theme ? `${esc(round.theme)} · ` : ""}${turn.done}/${turn.total} panels drawn</p>
+          <p class="muted" data-testid="panel-progress">${round.theme ? `${esc(round.theme)} · ` : ""}${target > 0 ? `${drawn}/${target} panels drawn` : `${drawn} ${drawn === 1 ? "panel" : "panels"} drawn`}</p>
         </div>
         <div class="actions">
-          ${canReveal(round) ? `<button class="btn btn-sm" data-reveal="${esc(round.id)}">${turn.complete ? "Reveal" : "Reveal early"}</button>` : ""}
-          ${canManageRound(round) ? `<button class="btn btn-quiet" data-archive="${esc(round.id)}">Archive</button>` : ""}
+          ${canReveal(round) ? `<button class="btn btn-sm" data-testid="reveal-round" data-reveal="${esc(round.id)}">${target > 0 && !complete ? "Reveal early" : "Reveal"}</button>` : ""}
+          ${canManageRound(round) ? `<button class="btn btn-quiet" data-testid="archive-round" data-archive="${esc(round.id)}">Archive</button>` : ""}
         </div>
       </div>
       ${renderRoster(round)}
@@ -718,8 +708,8 @@ function renderReveal(round) {
     <section class="card">
       <h2>The finished corpse</h2>
       ${segs.length
-        ? `<div class="gallery">${segs.map((s) => `
-            <div class="panel">
+        ? `<div class="gallery" data-testid="reveal-gallery">${segs.map((s) => `
+            <div class="panel" data-testid="reveal-panel" data-member-id="${esc(s.member_id)}">
               <img src="${esc(s.file_url)}" alt="panel by ${esc(s.member_name)}" />
               <div class="panel-by">${esc(s.member_name)}</div>
             </div>`).join("")}</div>`
@@ -741,33 +731,23 @@ function renderCreate() {
     <button class="btn btn-ghost btn-sm back" data-view-list>Back</button>
     <div class="topbar"><h1>Start a drawing</h1></div>
     ${renderMessages()}
-    <form class="card form" id="create-form">
+    <form class="card form" id="create-form" data-testid="round-form">
       <div class="field">
         <label for="title">Title</label>
-        <input id="title" name="title" placeholder="The Beast of Maple Street" required />
+        <input id="title" name="title" data-testid="field-title" placeholder="The Beast of Maple Street" required />
       </div>
       <div class="field">
         <label for="theme">Theme <span class="muted tiny" style="text-transform:none">(optional)</span></label>
-        <input id="theme" name="theme" placeholder="A creature nobody has seen" />
+        <input id="theme" name="theme" data-testid="field-theme" placeholder="A creature nobody has seen" />
       </div>
       <div class="field">
-        <label>Artists</label>
-        <p class="muted tiny">You draw first, then the drawing is passed to the others in a random order.</p>
-        <div class="members">
-          ${members.map((m) => {
-            const isHost = m.id === currentMember?.id;
-            return `
-            <label class="member-pick">
-              <input type="checkbox" name="participant" value="${esc(m.id)}" ${isHost ? "checked disabled" : ""} />
-              <span class="avatar" style="background:${esc(memberColor(m.id, members))}">${esc(initial(m.name))}</span>
-              <span>${esc(m.name)}</span>
-              ${isHost ? `<span class="pill info tiny" style="margin-left:auto">You · goes first</span>` : ""}
-            </label>`;
-          }).join("")}
-        </div>
+        <label for="panel_target">How many panels? <span class="muted tiny" style="text-transform:none">(optional)</span></label>
+        <input id="panel_target" name="panel_target" type="number" min="0" max="99" step="1" inputmode="numeric"
+               data-testid="field-panel-target" placeholder="Leave blank for open-ended" />
+        <p class="muted tiny">Anyone in the household can add a panel, one each, in whatever order people are ready. Set a number to close the drawing once it's that tall — or leave it blank and reveal whenever you like.</p>
       </div>
       <div class="actions">
-        <button class="btn" type="submit">Start drawing</button>
+        <button class="btn" type="submit" data-testid="round-submit">Start drawing</button>
       </div>
     </form>`;
 }

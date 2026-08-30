@@ -1,0 +1,26 @@
+-- Free-order play (v1.2.0).
+--
+-- The fixed turn order is retired. It was never a server-side control — the
+-- sealed_until policy has no turn gate, as 001's comment says — but the client
+-- derived "whose turn is it" by counting the round's segments, and segments are
+-- sealed: a member reads only their OWN. So `done` was 0 for everyone who had
+-- not yet drawn, the turn always resolved to seat 0, and no one but the host
+-- could ever submit. The same miscount reached the glance badge, which counted
+-- every open round as "waiting for your panel".
+--
+-- Both collapse if nobody has an assigned seat: any artist may add a panel to an
+-- open round whenever they are ready, once each, and `position` becomes claim
+-- order rather than a preassigned slot. The connector chain is unaffected — you
+-- attach to the panel below yours, which exists by definition because you took
+-- the next free slot. Turn state is now read from `handoffs`, which is
+-- inherit_visibility and therefore actually readable by the artist asking.
+--
+-- `rounds.turn_order` cannot be dropped (old app versions may still read it) and
+-- is left in place, no longer written or read. Rows created before this
+-- migration keep their stale value; nothing consults it.
+--
+-- panel_target is the optional size the host is aiming for: 0 means open-ended.
+-- INTEGER so it stays plaintext and queryable — an encrypted TEXT column could
+-- neither be compared in SQL nor drive a glance.
+ALTER TABLE app_exquisite_corpse__rounds
+  ADD COLUMN panel_target INTEGER NOT NULL DEFAULT 0;

@@ -1,16 +1,49 @@
 // Pure, browser-free game logic for Exquisite Corpse. Imported by index.html
 // (bound to app state via thin wrappers) and unit-tested directly in
 // __tests__/logic.test.mjs.
+//
+// THE ONE RULE THIS FILE EXISTS TO KEEP: never count `segments` to work out the
+// state of a round. Segments are sealed_until — a member's SELECT returns only
+// their own panel while the round is open — so any count over them reads 0-or-1
+// for every artist and is wrong for everyone. `handoffs` is the visible shadow
+// of the same event (one row written per submit, inherit_visibility from the
+// round), and is the only honest source for "how many panels are in".
+//
+// `segments` may still be asked the one question it can answer for the caller:
+// "is MY panel among these" — that row is the one the policy does return.
 
-export function parseOrder(round) {
-  if (!round) return [];
-  if (Array.isArray(round.turn_order)) return round.turn_order;
-  try {
-    const parsed = JSON.parse(round.turn_order ?? "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+// Panels submitted to a round so far. Counted from the shared hand-offs, not
+// the sealed segments (see the file header).
+export function panelCount(handoffs, roundId) {
+  return handoffs.filter((h) => h.round_id === roundId).length;
+}
+
+// The position the next artist claims. Positions are claim order, first come
+// first served — there is no reserved seat.
+export function nextPosition(handoffs, roundId) {
+  return panelCount(handoffs, roundId);
+}
+
+// The panel count the host is aiming for; 0 (or absent) means open-ended.
+export function panelTarget(round) {
+  const n = Number(round?.panel_target ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+export function roundProgress(round, handoffs) {
+  const drawn = panelCount(handoffs, round.id);
+  const target = panelTarget(round);
+  return { drawn, target, complete: target > 0 && drawn >= target };
+}
+
+// Everyone who has put a panel in, in claim order. Readable by any artist —
+// hand-offs carry the member id and nothing about the drawing itself. This is
+// the audience for the reveal: the sealed segments cannot supply it.
+export function artistIds(handoffs, roundId) {
+  return handoffs
+    .filter((h) => h.round_id === roundId)
+    .sort((a, b) => (Number(a.position) - Number(b.position)))
+    .map((h) => h.member_id);
 }
 
 // Segments belonging to a round, ordered by their assigned panel position.
@@ -20,43 +53,24 @@ export function orderedSegments(segments, roundId) {
     .sort((a, b) => (a.position - b.position) || String(a.created_at).localeCompare(String(b.created_at)));
 }
 
-// The turn is DERIVED from how many panels are in — never a mutable pointer.
-// currentMemberId is whoever occupies the next open slot in turn_order.
-export function deriveTurn(round, segments) {
-  const order = parseOrder(round);
-  const done = segments.filter((s) => s.round_id === round.id).length;
-  const total = order.length;
-  const complete = total > 0 && done >= total;
-  return {
-    done,
-    total,
-    complete,
-    currentIndex: complete ? -1 : done,
-    currentMemberId: complete ? null : (order[done] ?? null),
-  };
-}
-
 export function mySegment(segments, round, me) {
   if (!me) return null;
   return segments.find((s) => s.round_id === round.id && s.member_id === me.id) ?? null;
 }
 
-export function isParticipant(round, me) {
-  return !!me && parseOrder(round).includes(me.id);
-}
-
-// Mirrors the sealed_until server policy: I may submit iff it is my slot's turn,
-// the round is open, and I have not already submitted. The server independently
-// enforces one-panel-per-member and sealing — this only drives the UI.
-export function canSubmit(round, segments, me) {
+// Mirrors what the server actually enforces: the round is open, and this member
+// has not already drawn (sealed_until's max_per_member, one panel per member per
+// round). No turn check — there is no turn. A full round is the one soft gate:
+// once the host's target is met the canvas closes, but the server does not know
+// about targets, so this is UX, not a control.
+//
+// `mySegment` is deliberately the "have I drawn" check rather than `hasDrawn`:
+// my own segment is the row the policy DOES return to me, and it is what the
+// server's one-per-member rule keys on.
+export function canSubmit(round, segments, handoffs, me) {
   if (!me || round.status !== "open" || round.archived) return false;
   if (mySegment(segments, round, me)) return false;
-  return deriveTurn(round, segments).currentMemberId === me.id;
-}
-
-// A member's fixed panel position is their slot in the immutable turn_order.
-export function positionFor(round, me) {
-  return parseOrder(round).indexOf(me?.id);
+  return !roundProgress(round, handoffs).complete;
 }
 
 // Mirrors owner_or_visibility + write_owner_only: only the creator manages the
@@ -66,11 +80,26 @@ export function canManageRound(round, me) {
 }
 
 // Host may reveal an open round that has at least one panel; the UI recommends
-// waiting until every slot is filled but allows an early reveal.
-export function canReveal(round, segments, me) {
+// waiting for the target (when there is one) but allows an early reveal.
+export function canReveal(round, handoffs, me) {
   if (!canManageRound(round, me)) return false;
   if (round.status !== "open" || round.archived) return false;
-  return deriveTurn(round, segments).done > 0;
+  return panelCount(handoffs, round.id) > 0;
+}
+
+// The hand-off marks the next artist continues: those left by the panel
+// immediately below the one being claimed, i.e. the most recent hand-off.
+// Returns [] for the first panel of a round.
+export function lastConnectors(handoffs, roundId) {
+  const forRound = handoffs
+    .filter((h) => h.round_id === roundId)
+    .sort((a, b) => Number(a.position) - Number(b.position));
+  const prev = forRound[forRound.length - 1];
+  if (!prev) return [];
+  try {
+    const parsed = typeof prev.connectors === "string" ? JSON.parse(prev.connectors) : prev.connectors;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
 }
 
 // From this artist's strokes, the low-information hand-off passed to the next
