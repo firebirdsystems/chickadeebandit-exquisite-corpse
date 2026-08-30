@@ -161,6 +161,11 @@ const SIZES   = [3, 6, 12];
 const BAND    = 26; // px above the bottom edge treated as the hand-off seam
 
 let members = [];
+// `family.app_members` — the members the hub would actually let into this app
+// (visible_to, per-member overrides, min_age, guest grants). null = unknown
+// (older hub, or the fetch failed): fall back to the roster, the old behavior.
+// Completeness ("has everyone drawn?") reads this; naming people reads members.
+let appMembers = null;
 let memberMap = new Map();
 let currentMember = null;
 let rounds = [];
@@ -224,10 +229,14 @@ let canvasGhost = [];
 
 // thin wrappers binding pure logic to the current member
 function memberIds() { return members.map((m) => m.id); }
-function canSubmit(round) { return _canSubmit(round, segments, handoffs, currentMember, memberIds()); }
+// Who is playing, as opposed to who lives here. Everything that asks "has
+// everyone drawn?" or "who are we waiting on?" measures against this.
+function participants() { return appMembers ?? members; }
+function participantIds() { return participants().map((m) => m.id); }
+function canSubmit(round) { return _canSubmit(round, segments, handoffs, currentMember, participantIds()); }
 function canManageRound(round) { return _canManage(round, currentMember); }
 function canReveal(round) { return _canReveal(round, handoffs, currentMember); }
-function progressOf(round) { return roundProgress(round, handoffs, memberIds()); }
+function progressOf(round) { return roundProgress(round, handoffs, participantIds()); }
 
 function nowIso() { return new Date().toISOString(); }
 function uid(prefix) { return `${prefix}-${crypto.randomUUID()}`; }
@@ -262,9 +271,11 @@ async function loadMembers() {
     ];
   } else {
     try {
-      const res = await fetch(`${CONTEXT}?keys=family.members`);
-      members = ((await res.json())["family.members"]) ?? [];
-    } catch { members = []; }
+      const res = await fetch(`${CONTEXT}?keys=family.members,family.app_members`);
+      const json = await res.json();
+      members = json["family.members"] ?? [];
+      appMembers = json["family.app_members"] ?? null;
+    } catch { members = []; appMembers = null; }
   }
   memberMap = new Map(members.map((m) => [m.id, m]));
   currentMember = ME ?? members[0] ?? { id: "guest", name: "Guest", role: "adult" };
@@ -375,7 +386,7 @@ function confirmOrCancel(opts) {
 // reveal actually costs.
 function outstandingNames(round) {
   const drawn = new Set(artistIds(handoffs, round.id));
-  return members.filter((m) => !drawn.has(m.id)).map((m) => m.name);
+  return participants().filter((m) => !drawn.has(m.id)).map((m) => m.name);
 }
 
 function listNames(names) {
@@ -710,12 +721,12 @@ async function revealRound(roundId) {
   // allowed, but it is the destructive one: whoever has not drawn never will.
   const early = !complete;
   // Names them rather than counting them, and describes what happens to their
-  // PANELS rather than to their turns. This used to read "Anyone who hasn't
-  // drawn yet loses their turn", which asserts something the app cannot know:
-  // `family.members` is the whole household roster, and a household can narrow
-  // an app's audience (visible_to, per-member overrides, min_age) without the
-  // app ever hearing about it — so the people who have not drawn may never have
-  // been able to. What is always true is that their panels won't be included.
+  // PANELS rather than to their turns. The names come from the participant set
+  // (family.app_members when the hub provides it), so a member the household
+  // restricted out of the app is not mourned as a lost panel. On an older hub
+  // the set falls back to the roster, and the copy stays honest either way: it
+  // only ever claims their panels won't be included, never that they lost a
+  // turn they may not have had.
   const missing = outstandingNames(round);
   const ok = await confirmOrCancel({
     message: early ? "Reveal now, before everyone has drawn?" : "Reveal the finished drawing?",
@@ -986,7 +997,11 @@ document.addEventListener("input", (e) => {
 // names people, never their drawings.
 function renderRoster(round) {
   const drawnIds = artistIds(handoffs, round.id);
-  const waiting = members.filter((m) => !drawnIds.includes(m.id));
+  // Waiting on participants, not the roster: a member the household restricted
+  // out of this app is not "not yet", they were never going to draw. Drawn
+  // rows still resolve names through the full roster (memberMap) — a panel by
+  // a since-restricted member keeps its name.
+  const waiting = participants().filter((m) => !drawnIds.includes(m.id));
   const row = (id, done) => `
     <div class="roster-row" data-testid="artist-row" data-member-id="${esc(id)}" data-drawn="${done ? "1" : "0"}">
       <span class="dot ${done ? "done" : ""}"></span>

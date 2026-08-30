@@ -59,16 +59,18 @@ their one panel on a drawing that would stay sealed from everyone including
 themselves. The round now says so, stops taking panels, and drops off the
 Glance; retention retires it on the normal 365-day schedule.
 
-### What the app cannot know
+### Who counts as "everyone"
 
-A round is "finished" when everyone has drawn, and the app measures *everyone*
-against `family.members` — the whole household roster. A household can narrow an
-app's audience (`visible_to`, per-member overrides, `min_age`) without the app
-hearing about it, so in a household that restricts this app the roster overstates
-who is playing and that state is never reached. Nothing breaks: the host can
-reveal at any point from the first panel on. What is lost is the "Ready to
-reveal" pill and the nudge sent to the host. Nothing user-facing claims the
-people who have not drawn were ever going to.
+A round is "finished" when everyone has drawn — and "everyone" is
+`family.app_members` when the hub provides it: the members the household's own
+settings (`visible_to`, per-member grants and restrictions, `min_age`) would
+actually let into this app. On a hub that predates the key, or when the fetch
+fails, the app falls back to `family.members`, the whole roster — in a
+household that restricts this app, the roster then overstates who is playing
+and the "Ready to reveal" pill may never appear. Nothing breaks either way:
+the host can reveal at any point from the first panel on. Names always come
+from the full roster, so a panel drawn by a since-restricted member keeps its
+name.
 
 ## Develop
 

@@ -19,7 +19,8 @@
   ],
   "data_access": {
     "reads": [
-      "family.members"
+      "family.members",
+      "family.app_members"
     ],
     "writes": []
   },
