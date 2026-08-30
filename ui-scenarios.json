@@ -9,13 +9,12 @@
       "steps": [
         {
           "action": "seedRaw",
-          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, ?, 'everyone', ?, ?, 300, ?, ?, datetime('now'), 0)",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, ?, 'everyone', ?, 300, ?, ?, datetime('now'), 0)",
           "params": [
             "ui-r1",
             "The Beast of Maple Street",
             "A creature nobody has seen",
             "open",
-            0,
             "{{host}}",
             "Host"
           ]
@@ -110,22 +109,20 @@
       ]
     },
     {
-      "name": "a drawing that has hit its panel target stops taking panels",
+      "name": "once everyone has drawn the round reads as ready, and offers the host a reveal",
       "members": {
         "host": "admin",
-        "artist": "adult",
-        "bystander": "child"
+        "artist": "adult"
       },
       "steps": [
         {
           "action": "seedRaw",
-          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, ?, 'everyone', ?, ?, 300, ?, ?, datetime('now'), 0)",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, ?, 'everyone', ?, 300, ?, ?, datetime('now'), 0)",
           "params": [
             "ui-r2",
             "Full Up",
             "Two panels only",
             "open",
-            2,
             "{{host}}",
             "Host"
           ]
@@ -178,52 +175,83 @@
         },
         {
           "action": "open",
-          "as": "bystander"
+          "as": "host"
         },
         {
           "action": "waitFor",
           "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r2\"]",
-          "as": "bystander"
+          "as": "host"
+        },
+        {
+          "action": "expectText",
+          "text": "Ready to reveal",
+          "selector": "[data-testid=\"round-status\"]",
+          "as": "host"
         },
         {
           "action": "click",
           "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r2\"]",
-          "as": "bystander"
+          "as": "host"
         },
         {
           "action": "waitFor",
-          "selector": "[data-testid=\"round-full\"]",
-          "as": "bystander"
+          "selector": "[data-testid=\"panel-sealed\"]",
+          "as": "host"
+        },
+        {
+          "action": "expectText",
+          "text": "2 panels drawn \u00b7 everyone has drawn",
+          "selector": "[data-testid=\"panel-progress\"]",
+          "as": "host"
+        },
+        {
+          "action": "expectVisible",
+          "selector": "[data-testid=\"reveal-round\"]",
+          "as": "host"
+        },
+        {
+          "action": "expectText",
+          "text": "Reveal",
+          "selector": "[data-testid=\"reveal-round\"]",
+          "as": "host"
         },
         {
           "action": "expectCount",
           "selector": "[data-testid=\"draw-canvas\"]",
           "count": 0,
-          "as": "bystander"
+          "as": "host"
+        },
+        {
+          "action": "open",
+          "as": "artist"
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid=\"round-card\"][data-round-id=\"ui-r2\"]",
+          "as": "artist"
+        },
+        {
+          "action": "waitFor",
+          "selector": "[data-testid=\"panel-sealed\"]",
+          "as": "artist"
         },
         {
           "action": "expectCount",
-          "selector": "[data-testid=\"submit-panel\"]",
+          "selector": "[data-testid=\"draw-canvas\"]",
           "count": 0,
-          "as": "bystander"
-        },
-        {
-          "action": "expectText",
-          "text": "2/2 panels drawn",
-          "selector": "[data-testid=\"panel-progress\"]",
-          "as": "bystander"
+          "as": "artist"
         },
         {
           "action": "expectCount",
           "selector": "[data-testid=\"reveal-round\"]",
           "count": 0,
-          "as": "bystander"
+          "as": "artist"
         },
         {
           "action": "expectCount",
           "selector": "[data-testid=\"archive-round\"]",
           "count": 0,
-          "as": "bystander"
+          "as": "artist"
         }
       ]
     },
@@ -236,12 +264,11 @@
       "steps": [
         {
           "action": "seedRaw",
-          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, revealed_at, archived) VALUES (?, ?, ?, 'everyone', 'revealed', ?, 300, ?, ?, datetime('now'), datetime('now'), 0)",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, revealed_at, archived) VALUES (?, ?, ?, 'everyone', 'revealed', 300, ?, ?, datetime('now'), datetime('now'), 0)",
           "params": [
             "ui-r3",
             "The Finished Corpse",
             "All done",
-            2,
             "{{host}}",
             "Host"
           ]
@@ -338,89 +365,102 @@
       ]
     },
     {
-      "name": "starting a drawing takes a panel target and no artist list, and persists",
+      "name": "starting a drawing needs only a title, and it persists",
       "members": {
-        "member": "adult"
+        "host": "admin",
+        "artist": "adult"
       },
       "steps": [
         {
-          "action": "open"
+          "action": "open",
+          "as": "host"
         },
         {
           "action": "click",
-          "selector": "[data-testid=\"new-round\"]"
+          "selector": "[data-testid=\"new-round\"]",
+          "as": "host"
         },
         {
           "action": "waitFor",
-          "selector": "[data-testid=\"round-form\"]"
+          "selector": "[data-testid=\"round-form\"]",
+          "as": "host"
         },
         {
           "action": "fill",
           "selector": "[data-testid=\"field-title\"]",
-          "value": "Three Panel Beast"
+          "value": "The Overambitious Beast",
+          "as": "host"
         },
         {
           "action": "fill",
           "selector": "[data-testid=\"field-theme\"]",
-          "value": "Something with too many legs"
-        },
-        {
-          "action": "fill",
-          "selector": "[data-testid=\"field-panel-target\"]",
-          "value": "3"
+          "value": "Something with too many legs",
+          "as": "host"
         },
         {
           "action": "click",
-          "selector": "[data-testid=\"round-submit\"]"
+          "selector": "[data-testid=\"round-submit\"]",
+          "as": "host"
         },
         {
           "action": "waitFor",
-          "selector": "[data-testid=\"draw-canvas\"]"
+          "selector": "[data-testid=\"draw-canvas\"]",
+          "as": "host"
         },
         {
           "action": "expectText",
-          "text": "0/3 panels drawn",
-          "selector": "[data-testid=\"panel-progress\"]"
+          "text": "0 panels drawn",
+          "selector": "[data-testid=\"panel-progress\"]",
+          "as": "host"
         },
         {
-          "action": "reload"
+          "action": "reload",
+          "as": "host"
         },
         {
           "action": "waitFor",
-          "selector": "[data-testid=\"round-card\"]"
+          "selector": "[data-testid=\"round-card\"]",
+          "as": "host"
         },
         {
           "action": "expectCount",
           "selector": "[data-testid=\"round-card\"]",
-          "count": 1
+          "count": 1,
+          "as": "host"
         },
         {
           "action": "expectText",
-          "text": "Three Panel Beast",
-          "selector": "[data-testid=\"round-list\"]"
+          "text": "The Overambitious Beast",
+          "selector": "[data-testid=\"round-list\"]",
+          "as": "host"
         },
         {
           "action": "expectText",
           "text": "Add your panel",
-          "selector": "[data-testid=\"round-status\"]"
+          "selector": "[data-testid=\"round-status\"]",
+          "as": "host"
         },
         {
           "action": "click",
-          "selector": "[data-testid=\"round-card\"]"
+          "selector": "[data-testid=\"round-card\"]",
+          "as": "host"
         },
         {
           "action": "waitFor",
-          "selector": "[data-testid=\"panel-progress\"]"
+          "selector": "[data-testid=\"panel-progress\"]",
+          "as": "host"
         },
         {
           "action": "expectText",
-          "text": "0/3 panels drawn",
-          "selector": "[data-testid=\"panel-progress\"]"
+          "text": "0 panels drawn",
+          "selector": "[data-testid=\"panel-progress\"]",
+          "as": "host"
         },
         {
           "action": "expectText",
           "text": "Something with too many legs",
-          "selector": "[data-testid=\"panel-progress\"]"
+          "selector": "[data-testid=\"panel-progress\"]",
+          "as": "host"
         }
       ]
     }

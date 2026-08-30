@@ -10,11 +10,10 @@
         {
           "action": "db",
           "as": "host",
-          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', ?, 300, ?, 'Host', ?, 0)",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', 300, ?, 'Host', ?, 0)",
           "params": [
             "r1",
             "Beast",
-            0,
             "{{host}}",
             "2026-01-01T00:00:00Z"
           ],
@@ -119,11 +118,10 @@
         {
           "action": "db",
           "as": "host",
-          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', ?, 300, ?, 'Host', ?, 0)",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', 300, ?, 'Host', ?, 0)",
           "params": [
             "r2",
             "Beast",
-            0,
             "{{host}}",
             "2026-01-01T00:00:00Z"
           ],
@@ -173,11 +171,10 @@
         {
           "action": "db",
           "as": "host",
-          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', ?, 300, ?, 'Host', ?, 0)",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', 300, ?, 'Host', ?, 0)",
           "params": [
             "r3",
             "Beast",
-            0,
             "{{host}}",
             "2026-01-01T00:00:00Z"
           ],
@@ -224,11 +221,10 @@
         {
           "action": "db",
           "as": "host",
-          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_target, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', ?, 300, ?, 'Host', ?, 0)",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, ?, '', 'everyone', 'open', 300, ?, 'Host', ?, 0)",
           "params": [
             "r4",
             "Beast",
-            0,
             "{{host}}",
             "2026-01-01T00:00:00Z"
           ],

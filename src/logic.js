@@ -18,22 +18,59 @@ export function panelCount(handoffs, roundId) {
   return handoffs.filter((h) => h.round_id === roundId).length;
 }
 
-// The position the next artist claims. Positions are claim order, first come
-// first served — there is no reserved seat.
+/**
+ * The position the next artist claims: one above the highest slot taken, NOT
+ * the panel count. The two differ whenever a row has gone missing from the
+ * middle — `member_references.handoffs.on_removed` is "delete", so a member
+ * leaving takes their hand-off out of the sequence. Claiming `count` would then
+ * hand out a position somebody already holds, and the duplicate decides the
+ * stack order on a created_at tiebreak while `lastConnectors` picks between the
+ * tied rows arbitrarily — the next artist continues the wrong edge.
+ */
 export function nextPosition(handoffs, roundId) {
-  return panelCount(handoffs, roundId);
+  let max = -1;
+  for (const h of handoffs) {
+    if (h.round_id !== roundId) continue;
+    const pos = Number(h.position);
+    if (Number.isFinite(pos) && pos > max) max = pos;
+  }
+  return max + 1;
 }
 
 // The panel count the host is aiming for; 0 (or absent) means open-ended.
-export function panelTarget(round) {
-  const n = Number(round?.panel_target ?? 0);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-}
 
-export function roundProgress(round, handoffs) {
+
+
+/**
+ * `drawn` is the panel count. `complete` means the round can take no more
+ * panels: one per member is enforced server-side (sealed_until's
+ * max_per_member), so a round the whole roster has drawn on is finished.
+ *
+ * That is the ONLY way a round closes. A host-set panel target used to be a
+ * second one, and it cost far more than it bought: `position` and the count
+ * come apart in both directions — a departing member's hand-off is deleted,
+ * two racing artists can share a slot — so every surface that compared a count
+ * to a target disagreed with some other surface about what "full" meant. The
+ * glance badge could not even ask the question, deciding fullness in SQL as
+ * "some hand-off holds a slot at or past the last one" because a correlated
+ * COUNT over a governed table fails closed.
+ *
+ * Closing on the roster removes all of it, and removes it by construction: the
+ * badge is per-viewer and only ever surfaces a round to someone who has NOT
+ * drawn, and if anyone has not drawn then the round is not complete. Badge and
+ * canvas cannot disagree, so the glance needs no fullness test at all. Nothing
+ * is lost — a host who wants a shorter drawing reveals it early, which is what
+ * revealing has always meant.
+ *
+ * An empty roster means the roster is unknown (loadMembers swallows a failed
+ * family.members fetch), and `[].every()` is vacuously true, so it must not
+ * count.
+ */
+export function roundProgress(round, handoffs, memberIds = []) {
   const drawn = panelCount(handoffs, round.id);
-  const target = panelTarget(round);
-  return { drawn, target, complete: target > 0 && drawn >= target };
+  const drawnIds = new Set(artistIds(handoffs, round.id));
+  const complete = memberIds.length > 0 && memberIds.every((id) => drawnIds.has(id));
+  return { drawn, complete };
 }
 
 // Everyone who has put a panel in, in claim order. Readable by any artist —
@@ -60,17 +97,70 @@ export function mySegment(segments, round, me) {
 
 // Mirrors what the server actually enforces: the round is open, and this member
 // has not already drawn (sealed_until's max_per_member, one panel per member per
-// round). No turn check — there is no turn. A full round is the one soft gate:
-// once the host's target is met the canvas closes, but the server does not know
-// about targets, so this is UX, not a control.
+// round). No turn check — there is no turn.
 //
 // `mySegment` is deliberately the "have I drawn" check rather than `hasDrawn`:
 // my own segment is the row the policy DOES return to me, and it is what the
 // server's one-per-member rule keys on.
-export function canSubmit(round, segments, handoffs, me) {
+export function canSubmit(round, segments, handoffs, me, memberIds = []) {
   if (!me || round.status !== "open" || round.archived) return false;
   if (mySegment(segments, round, me)) return false;
-  return !roundProgress(round, handoffs).complete;
+  // roundProgress's roster clause cannot bite here — this member has no panel,
+  // so if they are on the roster then not everyone has drawn. Kept as the
+  // single source of "is this round finished" rather than open-coded.
+  return !roundProgress(round, handoffs, memberIds).complete;
+}
+
+/**
+ * What a submit should do, given what the artist drew against and the state
+ * just re-read from the server. Pure, so the interesting cases are unit-
+ * testable: the browser layer can only be driven through a canvas nobody can
+ * draw on from a test, and the confirmation dialog it raises belongs to the
+ * parent hub frame, out of reach of an app UI scenario.
+ *
+ * `drawnAgainst` / `drawnAgainstId` describe the panel this drawing was made
+ * to continue: how many panels there were, and WHICH row was above.
+ *
+ * The id is what decides whether to ask. A count difference cannot: hand-offs
+ * are deleted when a member leaves, so a departure and an arrival in the same
+ * window cancel out to `arrived === 0` while the edge being continued has in
+ * fact been replaced. The count is kept only to word the question.
+ *
+ *   { action: "blocked", reason }                  nothing can be done
+ *   { action: "confirm", kind, arrived, drawn, position }   ask, then submit
+ *   { action: "go", position }                     claim it silently
+ */
+export function submitDecision({ round, segments, handoffs, me, drawnAgainst, drawnAgainstId, memberIds = [] }) {
+  const position = nextPosition(handoffs, round.id);
+  if (!me) return { action: "blocked", reason: "unknown_member" };
+  // Both of these the server enforces too (one panel per member; frozen_when
+  // locks segments once the round is revealed) — deciding them here turns a
+  // raw policy rejection into a sentence.
+  if (mySegment(segments, round, me)) return { action: "blocked", reason: "already_drawn" };
+  if (round.status !== "open" || round.archived) return { action: "blocked", reason: "round_closed" };
+
+  const { drawn } = roundProgress(round, handoffs, memberIds);
+  const arrived = Math.max(0, panelCount(handoffs, round.id) - drawnAgainst);
+  // Has the panel we are continuing stopped being the panel above us?
+  const replaced = topHandoffId(handoffs, round.id) !== drawnAgainstId;
+  // There is deliberately no "the round filled up while you drew" case: a round
+  // is complete only when everyone has drawn, and this member has not, so it
+  // cannot have closed under them.
+  if (replaced) {
+    // Which question to ask turns on whether the panel we were continuing is
+    // STILL THERE, not on the count. A member leaving from BELOW us while
+    // someone else lands on top leaves the count unchanged, and picking the
+    // wording off `arrived` then tells the artist their neighbour left the
+    // roster when in truth a new panel just arrived. A null baseline means we
+    // started on an empty round, so anything on top is an arrival.
+    const baselineGone = drawnAgainstId != null &&
+      !handoffs.some((h) => h.round_id === round.id && h.id === drawnAgainstId);
+    return {
+      action: "confirm", kind: baselineGone ? "replaced" : "arrived",
+      arrived, drawn, position,
+    };
+  }
+  return { action: "go", position };
 }
 
 // Mirrors owner_or_visibility + write_owner_only: only the creator manages the
@@ -79,22 +169,40 @@ export function canManageRound(round, me) {
   return !!me && !!round && round.created_by_id === me.id;
 }
 
-// Host may reveal an open round that has at least one panel; the UI recommends
-// waiting for the target (when there is one) but allows an early reveal.
+// Host may reveal an open round that has at least one panel. Revealing before
+// everyone has drawn is allowed — it is how a host ends a drawing early.
 export function canReveal(round, handoffs, me) {
   if (!canManageRound(round, me)) return false;
   if (round.status !== "open" || round.archived) return false;
   return panelCount(handoffs, round.id) > 0;
 }
 
-// The hand-off marks the next artist continues: those left by the panel
-// immediately below the one being claimed, i.e. the most recent hand-off.
-// Returns [] for the first panel of a round.
-export function lastConnectors(handoffs, roundId) {
+/**
+ * The hand-off whose marks the next artist continues: the one holding the
+ * highest slot. Ties (two artists raced onto one position) break on created_at
+ * then id, so the choice is deterministic rather than array-order dependent.
+ *
+ * Everything that asks "what is above me" goes through here — the ghost marks
+ * and the did-it-change check both — so they cannot pick different rows.
+ */
+export function topHandoff(handoffs, roundId) {
   const forRound = handoffs
     .filter((h) => h.round_id === roundId)
-    .sort((a, b) => Number(a.position) - Number(b.position));
-  const prev = forRound[forRound.length - 1];
+    .sort((a, b) =>
+      (Number(a.position) - Number(b.position)) ||
+      String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) ||
+      String(a.id ?? "").localeCompare(String(b.id ?? "")));
+  return forRound[forRound.length - 1] ?? null;
+}
+
+/** Identity of the panel above the next slot, or null on an empty round. */
+export function topHandoffId(handoffs, roundId) {
+  return topHandoff(handoffs, roundId)?.id ?? null;
+}
+
+// The marks the next artist continues. Returns [] for the first panel.
+export function lastConnectors(handoffs, roundId) {
+  const prev = topHandoff(handoffs, roundId);
   if (!prev) return [];
   try {
     const parsed = typeof prev.connectors === "string" ? JSON.parse(prev.connectors) : prev.connectors;
