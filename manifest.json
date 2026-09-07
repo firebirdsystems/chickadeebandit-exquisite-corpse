@@ -4,7 +4,7 @@
     "household",
     "shared_space"
   ],
-  "name": "Exquisite Corpse",
+  "name": "Drawing Game",
   "version": "1.2.0",
   "description": "The classic collaborative drawing game, played async. Add a panel whenever you're ready \u2014 you see only the edge marks left by the panel above yours, and every panel stays sealed until the host reveals the finished, absurd creation to everyone at once.",
   "entrypoint": "index.html",
@@ -149,7 +149,7 @@
     }
   },
   "nav": {
-    "label": "Exquisite Corpse"
+    "label": "Drawing Game"
   },
   "resource_limits": {
     "max_db_bytes": 10485760

@@ -1,4 +1,4 @@
-# Exquisite Corpse
+# Drawing Game
 
 The classic collaborative drawing game, played asynchronously inside Chickadee Bandit.
 

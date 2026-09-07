@@ -1,7 +1,7 @@
 {
   "name": "chickadeebandit-exquisite-corpse",
   "version": "1.0.0",
-  "description": "Exquisite Corpse — async collaborative drawing game for Chickadee Bandit",
+  "description": "Drawing Game — async collaborative drawing game for Chickadee Bandit",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",

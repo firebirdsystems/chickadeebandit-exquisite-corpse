@@ -1,4 +1,4 @@
-// Pure, browser-free game logic for Exquisite Corpse. Imported by index.html
+// Pure, browser-free game logic for the Drawing Game (exquisite-corpse). Imported by index.html
 // (bound to app state via thin wrappers) and unit-tested directly in
 // __tests__/logic.test.mjs.
 //

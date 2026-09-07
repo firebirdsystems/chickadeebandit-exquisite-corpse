@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Exquisite Corpse</title>
+  <title>Drawing Game</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -749,7 +749,7 @@ async function revealRound(roundId) {
     // the gallery this immediately renders shows one panel — or "No panels were
     // drawn" for a host who never drew — until someone hits Refresh.
     try { await refreshRoundState(roundId); } catch { /* the next load fills it in */ }
-    showNotice("Revealed! Behold the exquisite corpse.");
+    showNotice("Revealed! Behold the finished drawing.");
     publish("exquisite_corpse.round_revealed", roundId, { title: round.title });
     // Everyone, not just the artists: the reveal is the payoff, and anyone who
     // didn't get a panel in — especially on an early reveal — is exactly who
@@ -949,7 +949,7 @@ function renderList() {
   return `
     <div class="topbar">
       <div>
-        <h1>🎨 Exquisite Corpse</h1>
+        <h1>🎨 Drawing Game</h1>
         <p class="muted tiny">Draw a panel, pass it on. Nobody sees the whole thing until the big reveal.</p>
       </div>
       <button class="btn" data-testid="new-round" data-view-create>Start one</button>
@@ -1102,7 +1102,7 @@ function renderReveal(round) {
       </div>
     </section>
     <section class="card">
-      <h2>The finished corpse</h2>
+      <h2>The finished drawing</h2>
       ${segs.length
         ? `<div class="gallery" data-testid="reveal-gallery">${segs.map((s) => `
             <div class="panel" data-testid="reveal-panel" data-member-id="${esc(s.member_id)}">
