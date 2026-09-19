@@ -17,13 +17,13 @@
       --accent-hover: var(--hub-primary-hover, #5b21b6);
       --accent-fg: var(--hub-primary-fg, #ffffff);
       --radius: var(--hub-radius, 10px);
-      --green: #047857;
-      --green-soft: #d1fae5;
-      --amber: #b45309;
-      --amber-soft: #fef3c7;
-      --red: #b91c1c;
-      --red-soft: #fee2e2;
-      --violet-soft: #ede9fe;
+      --green: var(--hub-tint-success-fg, #047857);
+      --green-soft: var(--hub-tint-success, #d1fae5);
+      --amber: var(--hub-tint-warning-fg, #b45309);
+      --amber-soft: var(--hub-tint-warning, #fef3c7);
+      --red: var(--hub-tint-danger-fg, #b91c1c);
+      --red-soft: var(--hub-tint-danger, #fee2e2);
+      --violet-soft: var(--hub-tint-accent, #ede9fe);
       --shadow: 0 1px 3px rgba(15, 23, 42, .07);
     }
     body {
@@ -47,11 +47,11 @@
     .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
     .title { font-weight: 750; font-size: 1rem; }
     .meta { margin-top: 3px; color: var(--muted); font-size: .82rem; }
-    .progress { height: 8px; overflow: hidden; border-radius: 999px; background: #eef2f7; margin-top: 10px; }
+    .progress { height: 8px; overflow: hidden; border-radius: 999px; background: var(--bg); margin-top: 10px; }
     .progress > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .2s; }
     .pill {
       display: inline-flex; align-items: center; justify-content: center; min-height: 24px;
-      padding: 2px 9px; border-radius: 999px; background: #f1f5f9; color: var(--muted);
+      padding: 2px 9px; border-radius: 999px; background: var(--bg); color: var(--muted);
       font-size: .74rem; font-weight: 700; white-space: nowrap;
     }
     .pill.good { background: var(--green-soft); color: var(--green); }
@@ -68,7 +68,7 @@
     .btn:hover { background: var(--accent-hover); }
     .btn:disabled { opacity: .48; cursor: default; }
     .btn-ghost { background: transparent; color: var(--text); border-color: var(--border-mid); }
-    .btn-ghost:hover { background: #f8fafc; }
+    .btn-ghost:hover { background: var(--bg); }
     .btn-danger { background: var(--red-soft); color: var(--red); border-color: transparent; }
     .btn-danger:hover { background: #fecaca; }
     .btn-quiet { min-height: 28px; padding: 3px 8px; background: transparent; color: var(--muted); border: 0; font-size: .76rem; font-weight: 700; }
@@ -104,7 +104,7 @@
     .empty, .loading { color: var(--muted); text-align: center; padding: 32px 16px; }
     .error { background: var(--red-soft); color: var(--red); padding: 9px 12px; border-radius: 8px; margin-bottom: 10px; font-size: .86rem; }
     .notice { background: var(--amber-soft); color: var(--amber); padding: 9px 12px; border-radius: 8px; margin-bottom: 10px; font-size: .86rem; }
-    .canvas-wrap { border: 1.5px solid var(--border-mid); border-radius: 10px; overflow: hidden; background: #fff; touch-action: none; }
+    .canvas-wrap { border: 1.5px solid var(--border-mid); border-radius: 10px; overflow: hidden; background: var(--surface); touch-action: none; }
     canvas { display: block; width: 100%; touch-action: none; cursor: crosshair; }
     .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
     .swatches { display: flex; gap: 6px; }
@@ -114,11 +114,11 @@
     .size-btn { width: 34px; height: 30px; border: 1.5px solid var(--border-mid); border-radius: 8px; background: var(--surface); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
     .size-btn.on { border-color: var(--accent); background: var(--violet-soft); }
     .size-dot { border-radius: 50%; background: var(--text); }
-    .gallery { display: grid; gap: 0; border: 1.5px solid var(--border); border-radius: 10px; overflow: hidden; background: #fff; }
+    .gallery { display: grid; gap: 0; border: 1.5px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
     .panel { border-top: 1px dashed var(--border); }
     .panel:first-child { border-top: 0; }
     .panel img { display: block; width: 100%; }
-    .panel-by { font-size: .72rem; color: var(--muted); padding: 4px 8px; background: #fafafa; }
+    .panel-by { font-size: .72rem; color: var(--muted); padding: 4px 8px; background: var(--bg); }
     .hint { background: var(--violet-soft); color: var(--accent); padding: 10px 12px; border-radius: 8px; font-size: .84rem; }
     @media (max-width: 560px) {
       .topbar, .head { align-items: stretch; flex-direction: column; }
