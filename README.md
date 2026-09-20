@@ -1,5 +1,7 @@
 # Drawing Game
 
+A [Chickadee Bandit](https://chickadeebandit.com/app-library/exquisite-corpse) app.
+
 The classic collaborative drawing game, played asynchronously inside Chickadee Bandit.
 
 A host starts a drawing; anyone in the household may add a panel to it, one
