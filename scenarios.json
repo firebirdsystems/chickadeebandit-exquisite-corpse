@@ -302,6 +302,95 @@
           }
         }
       ]
+    },
+    {
+      "name": "a child adds their own sealed panel to an adult's round but cannot see others' panels or reveal the round",
+      "members": { "kid": "child", "parent": "adult" },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, 'Beast', '', 'everyone', 'open', 300, ?, 'Parent', ?, 0)",
+          "params": ["rk1", "{{parent}}", "2026-01-01T00:00:00Z"]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, ?, ?, '', ?, ?)",
+          "params": ["sp1", "rk1", "{{parent}}", "Parent", 0, "https://files/p.png", "2026-01-01T00:00:00Z"]
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "INSERT INTO app_exquisite_corpse__segments (id, round_id, member_id, member_name, position, file_id, file_url, created_at) VALUES (?, ?, ?, ?, ?, '', ?, ?)",
+          "params": ["sk1", "rk1", "{{kid}}", "Kid", 1, "https://files/k.png", "2026-01-01T00:00:00Z"],
+          "expect": { "status": 200 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "SELECT id, member_id FROM app_exquisite_corpse__segments WHERE round_id = 'rk1'",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "sk1", "member_id": "scn-kid" }] }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id FROM app_exquisite_corpse__segments WHERE round_id = 'rk1'",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "sp1" }] }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "UPDATE app_exquisite_corpse__rounds SET status = 'revealed' WHERE id = 'rk1'",
+          "expect": { "status": 200 }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id, status FROM app_exquisite_corpse__rounds WHERE id = 'rk1'",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "status": "open" }] }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "SELECT id FROM app_exquisite_corpse__segments WHERE round_id = 'rk1'",
+          "expect": { "status": 200, "rowCount": 1 }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "UPDATE app_exquisite_corpse__rounds SET status = 'revealed', revealed_at = ? WHERE id = 'rk1'",
+          "params": ["2026-01-01T00:05:00Z"],
+          "expect": { "status": 200 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "SELECT id FROM app_exquisite_corpse__segments WHERE round_id = 'rk1'",
+          "expect": { "status": 200, "rowCount": 2 }
+        }
+      ]
+    },
+    {
+      "name": "a child cannot delete an adult's round",
+      "members": { "kid": "child", "parent": "adult" },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_exquisite_corpse__rounds (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived) VALUES (?, 'Beast', '', 'everyone', 'open', 300, ?, 'Parent', ?, 0)",
+          "params": ["rk2", "{{parent}}", "2026-01-01T00:00:00Z"]
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "DELETE FROM app_exquisite_corpse__rounds WHERE id = 'rk2'",
+          "expect": { "status": 200 }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id FROM app_exquisite_corpse__rounds WHERE id = 'rk2'",
+          "expect": { "status": 200, "rowCount": 1 }
+        }
+      ]
     }
   ]
 }
