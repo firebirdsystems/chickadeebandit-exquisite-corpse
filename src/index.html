@@ -140,7 +140,7 @@
 </div>
 
 <script type="module">
-import { esc, memberColor, initial, hubConfirm, createFilesHelper, sendHubNotification, hubAppUrl, searchMatch } from "/hub-sdk.js";
+import { esc, memberColor, initial, hubConfirm, createFilesHelper, sendHubNotification, hubAppUrl, searchMatch, glyph } from "/hub-sdk.js";
 import {
   orderedSegments, mySegment, panelCount, topHandoffId, submitDecision,
   roundProgress, artistIds, lastConnectors,
@@ -949,7 +949,7 @@ function renderList() {
   return `
     <div class="topbar">
       <div>
-        <h1>🎨 Drawing Game</h1>
+        <h1>${glyph("pencil")} Drawing Game</h1>
         <p class="muted tiny">Draw a panel, pass it on. Nobody sees the whole thing until the big reveal.</p>
       </div>
       <button class="btn" data-testid="new-round" data-view-create>Start one</button>
