@@ -31,7 +31,8 @@
   "storage": "db",
   "preload": {
     "segments": {"sql": "SELECT * FROM app_exquisite_corpse__segments ORDER BY position ASC, created_at ASC"},
-    "handoffs": {"sql": "SELECT * FROM app_exquisite_corpse__handoffs ORDER BY position ASC"}
+    "handoffs": {"sql": "SELECT * FROM app_exquisite_corpse__handoffs ORDER BY position ASC"},
+    "rounds": {"sql": "SELECT * FROM app_exquisite_corpse__rounds WHERE archived = ? ORDER BY created_at DESC", "params": [0]}
   },
   "db_plaintext_columns": [
     "visibility"
