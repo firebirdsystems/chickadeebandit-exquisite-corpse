@@ -131,6 +131,8 @@
       background: var(--surface, var(--card, #fff)); color: var(--text, inherit);
     }
     .search-input:focus { outline: none; border-color: var(--accent, #6366f1); }
+    .load-error { margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; background: var(--hub-tint-danger, #fee2e2); color: var(--hub-tint-danger-fg, #b91c1c); font-size: 0.9rem; display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .load-error-retry { background: none; border: 1px solid currentColor; border-radius: 8px; padding: 5px 10px; font: inherit; font-weight: 600; color: inherit; cursor: pointer; flex-shrink: 0; }
   </style>
   <base href="/run/exquisite-corpse/">
 </head>
@@ -176,6 +178,7 @@ let selectedRoundId = null;
 let view = "list";
 let showArchived = false;
 let error = "";
+let loadFailed = false;
 let notice = "";
 // A submit is in flight. Module state rather than the button's own `disabled`:
 // that is DOM state, and ANY render during the submit's awaits — a toolbar
@@ -256,8 +259,8 @@ async function dbq(sql, params = []) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sql, params }),
   });
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json || typeof json !== "object" || json.error) throw new Error(json?.error || "Couldn’t reach the hub. Try again.");
   return json;
 }
 
@@ -270,12 +273,14 @@ async function loadMembers() {
       { id: "demo-4", name: "Riley", role: "child" },
     ];
   } else {
-    try {
-      const res = await fetch(`${CONTEXT}?keys=family.members,family.app_members`);
-      const json = await res.json();
-      members = json["family.members"] ?? [];
-      appMembers = json["family.app_members"] ?? null;
-    } catch { members = []; appMembers = null; }
+    // A roster that could not be read is a failed load, not an empty household.
+    const res = await fetch(`${CONTEXT}?keys=family.members,family.app_members`);
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json || typeof json !== "object" || json.error) throw new Error("Couldn’t reach the hub. Try again.");
+    // A 200 can still name a key the hub failed to read: that is a failed load too.
+    if (Array.isArray(json.$errors) && json.$errors.includes("family.members")) throw new Error("Couldn’t reach the hub. Try again.");
+    members = json["family.members"] ?? [];
+    appMembers = json["family.app_members"] ?? null;
   }
   memberMap = new Map(members.map((m) => [m.id, m]));
   currentMember = ME ?? members[0] ?? { id: "guest", name: "Guest", role: "adult" };
@@ -355,9 +360,12 @@ async function refresh() {
     await loadMembers();
     await loadData();
     if (selectedRoundId && !rounds.some((r) => r.id === selectedRoundId)) selectedRoundId = null;
+    loadFailed = false;
     render();
   } catch (e) {
-    error = e.message; render();
+    // While the first load is still failed the banner already says so.
+    if (!loadFailed) error = e.message;
+    render();
   }
 }
 
@@ -741,7 +749,11 @@ async function revealRound(roundId) {
   if (!ok) return;
   try {
     const at = nowIso();
-    if (DB) await dbq("UPDATE app_exquisite_corpse__rounds SET status = 'revealed', revealed_at = ? WHERE id = ?", [at, roundId]);
+    if (DB) {
+      const { changed } = await dbq("UPDATE app_exquisite_corpse__rounds SET status = 'revealed', revealed_at = ? WHERE id = ?", [at, roundId]);
+      // Only the host's own row is written; a write narrowed to nothing still answers 200.
+      if (changed === 0) throw new Error("This drawing could not be revealed.");
+    }
     const idx = rounds.findIndex((r) => r.id === roundId);
     if (idx !== -1) rounds[idx] = { ...rounds[idx], status: "revealed", revealed_at: at };
     // The status flip is what releases every panel from sealed_until, so the
@@ -769,7 +781,10 @@ async function archiveRound(roundId) {
   });
   if (!ok) return;
   try {
-    if (DB) await dbq("UPDATE app_exquisite_corpse__rounds SET archived = 1 WHERE id = ?", [roundId]);
+    if (DB) {
+      const { changed } = await dbq("UPDATE app_exquisite_corpse__rounds SET archived = 1 WHERE id = ?", [roundId]);
+      if (changed === 0) throw new Error("This drawing could not be archived.");
+    }
     rounds = rounds.filter((r) => r.id !== roundId);
     selectedRoundId = null;
     showNotice("Drawing archived.");
@@ -915,6 +930,7 @@ function setSize(s) { penSize = s; render(); }
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderMessages() {
+  if (loadFailed) return `<div class="load-error" data-testid="load-error" role="alert"><span>Couldn’t load the drawings.</span> <button type="button" class="load-error-retry" data-testid="load-retry">Try again</button></div>`;
   return `${error ? `<div class="error">${esc(error)}</div>` : ""}${notice ? `<div class="notice">${esc(notice)}</div>` : ""}`;
 }
 
@@ -952,7 +968,7 @@ function renderList() {
         <h1>${glyph("pencil")} Drawing Game</h1>
         <p class="muted tiny">Draw a panel, pass it on. Nobody sees the whole thing until the big reveal.</p>
       </div>
-      <button class="btn" data-testid="new-round" data-view-create>Start one</button>
+      ${loadFailed ? "" : `<button class="btn" data-testid="new-round" data-view-create>Start one</button>`}
     </div>
     ${renderMessages()}
     <div class="section-head">
@@ -981,6 +997,7 @@ function renderRoundList() {
   const all = visibleRounds();
   const shown = searchQ ? all.filter(r => searchMatch(searchQ, searchableFields(r))) : all;
   if (shown.length) return shown.map(renderRoundCard).join("");
+  if (loadFailed) return "";
   if (searchQ) return `<div class="card empty">No drawings match "${esc(searchQ)}".</div>`;
   return `<div class="card empty">${showArchived ? "Nothing archived." : "No drawings yet — start the first one!"}</div>`;
 }
@@ -1171,6 +1188,7 @@ document.addEventListener("click", (e) => {
   if (t.matches("[data-back], [data-view-list]")) { selectedRoundId = null; view = "list"; clearMessages(); render(); return; }
   if (t.matches("[data-view-create]")) { view = "create"; clearMessages(); render(); return; }
   if (t.matches("[data-refresh]")) { refresh(); return; }
+  if (t.matches('[data-testid="load-retry"]')) { firstLoad(); return; }
   if (t.matches("[data-toggle-archived]")) { showArchived = !showArchived; refresh(); return; }
   if (t.hasAttribute("data-color")) { setColor(t.getAttribute("data-color")); return; }
   if (t.hasAttribute("data-size")) { setSize(Number(t.getAttribute("data-size"))); return; }
@@ -1193,12 +1211,12 @@ function handleDeepLink() {
   if (roundId && rounds.some((r) => r.id === roundId)) selectedRoundId = roundId;
 }
 
-(async () => {
-  await loadMembers();
-  await loadData().catch((e) => { error = e.message; });
+async function firstLoad() {
+  loadFailed = await loadMembers().then(loadData).then(() => false, () => true);
   handleDeepLink();
   render();
-})();
+}
+firstLoad();
 </script>
 </body>
 </html>
