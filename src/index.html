@@ -264,6 +264,12 @@ async function dbq(sql, params = []) {
   return json;
 }
 
+// Wording this app wrote for the reader is marked where it is thrown. A failed
+// write shows that wording, or one fixed line for the action; the hub's own
+// error text goes to the console.
+function userError(msg) { return Object.assign(new Error(msg), { forUser: true }); }
+function failText(e, line) { if (!e?.forUser) console.error(e); return e?.forUser ? e.message : line; }
+
 async function loadMembers() {
   if (!CONTEXT) {
     members = [
@@ -364,7 +370,7 @@ async function refresh() {
     render();
   } catch (e) {
     // While the first load is still failed the banner already says so.
-    if (!loadFailed) error = e.message;
+    if (!loadFailed) error = failText(e, "Couldn’t refresh the drawings.");
     render();
   }
 }
@@ -439,7 +445,7 @@ async function createRound(form) {
     if (audience.length) {
       notify(audience, `New drawing: ${title}`, `${currentMember.name} started a drawing — add a panel whenever you're ready.`, round.id);
     }
-  } catch (e) { showError(e.message); }
+  } catch (e) { showError(failText(e, "Couldn’t start the drawing — try again.")); }
 }
 
 // Wording for each submitDecision outcome. Split out so the decision stays a
@@ -536,7 +542,7 @@ async function submitSegment() {
     let fresh;
     try {
       fresh = await refreshRoundState(round.id);
-    } catch (e) { return showError(e.message); }
+    } catch (e) { return showError(failText(e, "Couldn’t check the drawing — try again.")); }
     if (!fresh) return showError("This drawing is no longer here.");
 
     // Two artists submitting in the same instant can still both land on the same
@@ -580,7 +586,7 @@ async function submitSegment() {
       let fileUrl;
       if (FILES_URL) {
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-        if (!blob) throw new Error("Could not capture the drawing.");
+        if (!blob) throw userError("Could not capture the drawing.");
         const up = await files.upload(new File([blob], `${fresh.id}-${pos}.png`, { type: "image/png" }));
         fileId = up.id; fileUrl = up.url;
       } else {
@@ -637,7 +643,7 @@ async function submitSegment() {
             // misfeeds the next artist, and is blocked from repair by
             // max_per_member. Never risk creating one to tidy up the other.
             if (present === true) throw new SubmitLanded(fresh.id, pos, seg, ho);
-            throw new Error(
+            throw userError(
               "Your panel saved but we couldn't confirm it was passed on. "
               + "Reload to check before drawing anything else."
             );
@@ -654,13 +660,13 @@ async function submitSegment() {
           try {
             await dbq("DELETE FROM app_exquisite_corpse__segments WHERE id = ?", [seg.id]);
           } catch {
-            throw new Error(
+            throw userError(
               "Your panel saved but couldn't be passed on, and undoing it failed too. "
               + "Reload before trying again — don't redraw yet."
             );
           }
-          const why = handoffError?.message ? ` (${handoffError.message})` : "";
-          throw new Error(`Couldn't pass the drawing on, so nothing was saved${why}. Try submitting again.`);
+          console.error(handoffError);
+          throw userError("Couldn't pass the drawing on, so nothing was saved. Try submitting again.");
         }
       }
       segments = [...segments, seg];
@@ -698,7 +704,10 @@ async function submitSegment() {
         else showNotice("Your panel is in.");
         return;
       }
-      showError(e.message);
+      // A panel the hub would not store (no room left, too large) says why in
+      // the hub's words; any other failure is this app's one line.
+      const refused = (e?.status >= 400 && e?.status < 500) || e?.status === 507;
+      showError(refused && e.message ? e.message : failText(e, "Couldn’t save your panel — try again."));
     }
   } finally {
     // Every path above leaves through here, so the guard is released and the
@@ -720,7 +729,7 @@ async function revealRound(roundId) {
   // landed after that load, so they were never told it had been revealed.
   let round = stale;
   try { round = (await refreshRoundState(roundId)) ?? stale; }
-  catch (e) { return showError(e.message); }
+  catch (e) { return showError(failText(e, "Couldn’t check the drawing — try again.")); }
   if (!canManageRound(round)) return showError("Only the host can reveal this drawing.");
   if (round.status !== "open" || round.archived) return showError("This drawing can't be revealed any more.");
   const { drawn, complete } = progressOf(round);
@@ -752,7 +761,7 @@ async function revealRound(roundId) {
     if (DB) {
       const { changed } = await dbq("UPDATE app_exquisite_corpse__rounds SET status = 'revealed', revealed_at = ? WHERE id = ?", [at, roundId]);
       // Only the host's own row is written; a write narrowed to nothing still answers 200.
-      if (changed === 0) throw new Error("This drawing could not be revealed.");
+      if (changed === 0) throw userError("This drawing could not be revealed.");
     }
     const idx = rounds.findIndex((r) => r.id === roundId);
     if (idx !== -1) rounds[idx] = { ...rounds[idx], status: "revealed", revealed_at: at };
@@ -768,7 +777,7 @@ async function revealRound(roundId) {
     // would otherwise never hear that the drawing was finished.
     const audience = memberIds().filter((id) => id !== currentMember.id);
     if (audience.length) notify(audience, `Revealed: ${round.title}`, "The collaborative drawing is complete — come see it!", roundId);
-  } catch (e) { showError(e.message); }
+  } catch (e) { showError(failText(e, "Couldn’t reveal the drawing — try again.")); }
 }
 
 async function archiveRound(roundId) {
@@ -783,12 +792,12 @@ async function archiveRound(roundId) {
   try {
     if (DB) {
       const { changed } = await dbq("UPDATE app_exquisite_corpse__rounds SET archived = 1 WHERE id = ?", [roundId]);
-      if (changed === 0) throw new Error("This drawing could not be archived.");
+      if (changed === 0) throw userError("This drawing could not be archived.");
     }
     rounds = rounds.filter((r) => r.id !== roundId);
     selectedRoundId = null;
     showNotice("Drawing archived.");
-  } catch (e) { showError(e.message); }
+  } catch (e) { showError(failText(e, "Couldn’t archive the drawing — try again.")); }
 }
 
 function publish(type, subjectId, payload) {
