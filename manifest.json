@@ -45,23 +45,7 @@
       "everyone_values": [
         "everyone"
       ],
-      "write_owner_only": true,
-      "retain_days": {
-        "default": 365,
-        "timestamp_column": "created_at",
-        "override_key": "round_history",
-        "dependent_tables": [
-          {
-            "table": "segments",
-            "foreign_key": "round_id",
-            "file_id_column": "file_id"
-          },
-          {
-            "table": "handoffs",
-            "foreign_key": "round_id"
-          }
-        ]
-      }
+      "write_owner_only": true
     },
     "segments": {
       "kind": "sealed_until",
@@ -100,10 +84,26 @@
       }
     }
   },
-  "delete_file_columns": {
-    "segments": [
-      "file_id"
-    ]
+  "retention": {
+    "rounds": {
+      "default": 365,
+      "timestamp_column": "created_at",
+      "override_key": "round_history",
+      "dependent_tables": [
+        {
+          "table": "segments",
+          "foreign_key": "round_id",
+          "file_id_column": "file_id"
+        },
+        {
+          "table": "handoffs",
+          "foreign_key": "round_id"
+        }
+      ]
+    }
+  },
+  "file_columns": {
+    "segments": { "columns": ["file_id"] }
   },
   "member_references": {
     "rounds": {
@@ -151,9 +151,6 @@
   },
   "nav": {
     "label": "Drawing Game"
-  },
-  "resource_limits": {
-    "max_db_bytes": 10485760
   },
   "icon": "\ud83c\udfa8",
   "ai_access": {
