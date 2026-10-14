@@ -267,3 +267,28 @@ export function computeConnectors(strokes, width, height, band = 24, max = 14) {
 export function searchableFields(item) {
   return [item.title, item.theme, item.created_by_name];
 }
+
+/**
+ * Whether a failed write may nonetheless have been stored ("retry after a lost
+ * response"). No status: the request threw before any answer. A 400: the hub's
+ * answer for a write that timed out after it may have been stored, and for a
+ * retry that met the first try's row under its pinned id (UNIQUE_CONSTRAINT).
+ * A 5xx other than 507: the hub failing on its side, possibly after the write.
+ * Anything else (403, 404, 409, 413, 415, 429, 507) is a refusal that stored
+ * nothing — the only case in which an upload made for the row may be deleted.
+ */
+export function outcomeUnknown(e) {
+  if (e?.code === "UNIQUE_CONSTRAINT" || /UNIQUE constraint failed/i.test(String(e?.message ?? ""))) return true;
+  const status = Number(e?.status) || 0;
+  return status === 0 || status === 400 || (status >= 500 && status !== 507);
+}
+
+/**
+ * Whether a stored row differs from what the form holds now, over the form's
+ * own fields only, compared as text with a missing value as empty.
+ */
+export function storedDiffers(row, fields) {
+  return Object.keys(fields).some((k) => String(row?.[k] ?? "") !== String(fields[k] ?? ""));
+}
+
+export const SAVED_AS_FIRST = "Saved as first entered — check it and update what changed.";

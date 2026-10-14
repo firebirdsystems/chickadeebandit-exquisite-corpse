@@ -148,6 +148,7 @@ import {
   roundProgress, artistIds, lastConnectors,
   canSubmit as _canSubmit, canManageRound as _canManage,
   canReveal as _canReveal, computeConnectors, searchableFields, isOrphanedRound,
+  outcomeUnknown, storedDiffers, SAVED_AS_FIRST,
 } from "./logic.js";
 
 const CONTEXT    = window.__CONTEXT_URL ?? "";
@@ -260,7 +261,9 @@ async function dbq(sql, params = []) {
     body: JSON.stringify({ sql, params }),
   });
   const json = await res.json().catch(() => null);
-  if (!res.ok || !json || typeof json !== "object" || json.error) throw new Error(json?.error || "Couldn’t reach the hub. Try again.");
+  if (!res.ok || !json || typeof json !== "object" || json.error) {
+    throw Object.assign(new Error(json?.error || "Couldn’t reach the hub. Try again."), { status: res.status, code: json?.code });
+  }
   return json;
 }
 
@@ -412,38 +415,74 @@ function showError(m) { error = m; notice = ""; render(); }
 function showNotice(m) { notice = m; error = ""; render(); }
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
+let creatingRound = false;
 async function createRound(form) {
+  // One press at a time: a second while the first is out would read its row
+  // back and announce the same drawing twice.
+  if (creatingRound) return;
+  creatingRound = true;
+  try { await createRoundOnce(form); } finally { creatingRound = false; }
+}
+async function createRoundOnce(form) {
   const title = form.title.value.trim();
   const theme = form.theme.value.trim();
   // Held before anything can fail: showError re-renders the form, and without
   // this every transient DB error threw away what the host had typed.
-  createDraft = { title, theme };
+  // The round's id is the draft's, minted on its first Start and sent on every
+  // retry: a try whose answer was lost may have stored the drawing, and a
+  // second press must find it rather than start another and invite everyone twice.
+  createDraft = { title, theme, roundId: createDraft.roundId };
   if (!title) return showError("Give your drawing a title.");
 
-  const round = {
-    id: uid("round"), title, theme, visibility: "everyone", status: "open",
+  let round = {
+    id: (createDraft.roundId ??= uid("round")), title, theme, visibility: "everyone", status: "open",
     panel_height: 300,
     created_by_id: currentMember.id, created_by_name: currentMember.name,
     created_at: nowIso(), revealed_at: null, archived: 0,
   };
+  let note = "";
   try {
-    await dbq(
-      `INSERT INTO app_exquisite_corpse__rounds
-         (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived)
-       VALUES (?, ?, ?, 'everyone', 'open', ?, ?, ?, ?, 0)`,
-      [round.id, round.title, round.theme, round.panel_height, round.created_by_id, round.created_by_name, round.created_at]
-    );
-    rounds = [round, ...rounds];
+    try {
+      await dbq(
+        `INSERT INTO app_exquisite_corpse__rounds
+           (id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, archived)
+         VALUES (?, ?, ?, 'everyone', 'open', ?, ?, ?, ?, 0)`,
+        [round.id, round.title, round.theme, round.panel_height, round.created_by_id, round.created_by_name, round.created_at]
+      );
+    } catch (e) {
+      // Unknown outcome: read the drawing back by the pinned id. Found means an
+      // earlier try landed and its success path never ran, so it runs now, once,
+      // as stored. Not found, or the read failed: the start fails, the id stays pinned.
+      if (!outcomeUnknown(e)) throw e;
+      let stored = null;
+      try {
+        stored = (await dbq(
+          `SELECT id, title, theme, visibility, status, panel_height, created_by_id, created_by_name, created_at, revealed_at, archived
+             FROM app_exquisite_corpse__rounds WHERE id = ?`, [round.id]
+        )).rows?.[0] ?? null;
+      } catch (readErr) {
+        // The id is ours: with the read-back failed, a UNIQUE answer may be this
+        // form's own first try, so nothing is known — "try again", not "already exists".
+        console.error(readErr);
+        throw new Error("create outcome unknown", { cause: e });
+      }
+      if (!stored) throw e;
+      console.error(e);
+      // Edited since that first try: what was stored is kept, and said so.
+      if (storedDiffers(stored, { title, theme })) note = SAVED_AS_FIRST;
+      round = stored;
+    }
+    rounds = [round, ...rounds.filter((r) => r.id !== round.id)];
     createDraft = { title: "", theme: "" };
     selectedRoundId = round.id;
     view = "list";
-    showNotice("Drawing started — anyone can add the first panel.");
-    publish("exquisite_corpse.round_created", round.id, { title });
+    if (note) showError(note); else showNotice("Drawing started — anyone can add the first panel.");
+    publish("exquisite_corpse.round_created", round.id, { title: round.title });
     // Everyone else is invited, because everyone else may draw. There is no
     // first artist to single out any more.
     const audience = members.map((m) => m.id).filter((id) => id !== currentMember.id);
     if (audience.length) {
-      notify(audience, `New drawing: ${title}`, `${currentMember.name} started a drawing — add a panel whenever you're ready.`, round.id);
+      notify(audience, `New drawing: ${round.title}`,`${currentMember.name} started a drawing — add a panel whenever you're ready.`, round.id);
     }
   } catch (e) { showError(failText(e, "Couldn’t start the drawing — try again.")); }
 }
@@ -1195,7 +1234,7 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (t.matches("[data-back], [data-view-list]")) { selectedRoundId = null; view = "list"; clearMessages(); render(); return; }
-  if (t.matches("[data-view-create]")) { view = "create"; clearMessages(); render(); return; }
+  if (t.matches("[data-view-create]")) { view = "create"; delete createDraft.roundId; clearMessages(); render(); return; }
   if (t.matches("[data-refresh]")) { refresh(); return; }
   if (t.matches('[data-testid="load-retry"]')) { firstLoad(); return; }
   if (t.matches("[data-toggle-archived]")) { showArchived = !showArchived; refresh(); return; }
