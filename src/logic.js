@@ -259,6 +259,43 @@ export function computeConnectors(strokes, width, height, band = 24, max = 14) {
   return out;
 }
 
+// Whether any drawn (non-eraser) stroke has a point inside the band [lo, hi].
+// One point is enough: a single line run off the edge is a full hand-off.
+function strokeReachesBand(strokes, lo, hi) {
+  return strokes.some((stroke) =>
+    stroke && !stroke.erase && Array.isArray(stroke.points) &&
+    stroke.points.some((p) => p && p.y >= lo && p.y <= hi));
+}
+
+/**
+ * Whether this member's panel would be the one that completes the round:
+ * everyone else playing has already drawn. Only then can a panel skip leaving
+ * marks off its bottom edge, because nobody is left to continue them. An
+ * empty roster is unknown, never "complete" (see roundProgress).
+ */
+export function wouldCompleteRound(round, handoffs, me, memberIds = []) {
+  if (!me || memberIds.length === 0) return false;
+  const drawnIds = new Set(artistIds(handoffs, round.id));
+  return memberIds.every((id) => id === me.id || drawnIds.has(id));
+}
+
+/**
+ * The seam rule, checked at submit. A panel must run at least one line off its
+ * bottom edge, since that is the only clue the next artist gets. It is waived
+ * for the panel that completes the round. A panel with marks above it should
+ * pick at least one of them up along its top edge; that is a confirm rather
+ * than a block, because an artist may choose to leave a tick unconnected.
+ */
+export function edgeCheck({ strokes, height, band, hasMarksAbove, lastPanel }) {
+  if (!lastPanel && !strokeReachesBand(strokes, height - band, Infinity)) {
+    return { action: "blocked", reason: "no_bottom" };
+  }
+  if (hasMarksAbove && !strokeReachesBand(strokes, -Infinity, band)) {
+    return { action: "confirm", kind: "no_top" };
+  }
+  return { action: "go" };
+}
+
 /**
  * Fields the in-app search matches against (see hub-sdk `searchMatch`).
  * The theme is what a drawing is remembered by once the title has

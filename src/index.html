@@ -147,7 +147,7 @@ import {
   orderedSegments, mySegment, panelCount, topHandoffId, submitDecision,
   roundProgress, artistIds, lastConnectors,
   canSubmit as _canSubmit, canManageRound as _canManage,
-  canReveal as _canReveal, computeConnectors, searchableFields, isOrphanedRound,
+  canReveal as _canReveal, computeConnectors, edgeCheck, wouldCompleteRound, searchableFields, isOrphanedRound,
   outcomeUnknown, storedDiffers, SAVED_AS_FIRST,
 } from "./logic.js";
 
@@ -495,11 +495,18 @@ const BLOCKED_MESSAGE = {
   already_drawn: () => "Your panel for this drawing is already in — it's one each.",
   round_closed: (round) =>
     `${round.created_by_name} closed this drawing while you were drawing. Your panel can't be added.`,
+  no_bottom: () =>
+    "Run at least one line off the bottom edge before passing it on. It's the only clue the next artist gets.",
   host_gone: (round) =>
     `${round.created_by_name} left the household while you were drawing, so this drawing can never be revealed. Your panel wasn't added — it would have stayed sealed from everyone, including you.`,
 };
 
 const CONFIRM_COPY = {
+  no_top: () => ({
+    message: "None of your lines reach the top edge.",
+    description: "The violet ticks at the top are where the last artist's lines cross over. Pass it on anyway, or cancel and continue at least one of them.",
+    confirmLabel: "Pass it on anyway",
+  }),
   replaced: () => ({
     message: "The panel above yours went away while you were drawing.",
     description: "Whoever drew it is no longer on the roster, so your top edge continues marks that aren't there any more. Add it anyway, or cancel — the current marks are on your canvas and you can draw to those instead.",
@@ -616,6 +623,20 @@ async function submitSegment() {
     // go blank together. Submitting then burns this member's one panel on an
     // empty image with no connectors, which max_per_member makes unrepairable.
     if (!strokes.length) return showError("Your canvas was cleared — draw something before passing it on.");
+
+    // The seam rule. Checked after the re-read so "last panel" and "marks
+    // above" reflect current state, and after the dialog above so a stroke
+    // undone while it was open counts.
+    const edges = edgeCheck({
+      strokes, height: fresh.panel_height, band: BAND,
+      hasMarksAbove: ghostConnectorsFor(fresh).length > 0,
+      lastPanel: wouldCompleteRound(fresh, handoffs, currentMember, participantIds()),
+    });
+    if (edges.action === "blocked") return showError(BLOCKED_MESSAGE[edges.reason](fresh));
+    if (edges.action === "confirm") {
+      if (!(await confirmOrCancel(CONFIRM_COPY[edges.kind](edges, fresh)))) return;
+      if (!strokes.length) return showError("Your canvas was cleared — draw something before passing it on.");
+    }
 
     const pos = decision.position;
     const connectors = computeConnectors(strokes, canvasWidth, fresh.panel_height, BAND);
@@ -1105,8 +1126,8 @@ function renderPlay(round) {
     const ghost = ghostConnectorsFor(round).length;
     body = `
       ${drawn > 0
-        ? `<div class="hint">You're picking up the drawing. The faint violet ticks at the top show where the last artist's lines cross over — continue them, then draw the rest of your panel however you like.</div>`
-        : `<div class="hint">You're starting the drawing! When you finish, leave a few lines running off the bottom edge — that's the only clue the next artist gets.</div>`}
+        ? `<div class="hint">You're picking up the drawing. The faint violet ticks at the top show where the last artist's lines cross over — continue at least one, draw the rest of your panel however you like, and run a line or two off the bottom for whoever's next.</div>`
+        : `<div class="hint">You're starting the drawing! When you finish, run at least one line off the bottom edge — a few is better. That's the only clue the next artist gets.</div>`}
       <div class="canvas-wrap"><canvas id="draw" data-testid="draw-canvas"></canvas></div>
       ${renderToolbar()}
       <div class="actions">

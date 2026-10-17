@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   panelCount, nextPosition, roundProgress, artistIds,
   orderedSegments, mySegment, canSubmit, canManageRound, canReveal, submitDecision, topHandoffId,
-  lastConnectors, computeConnectors, searchableFields, isOrphanedRound,
+  lastConnectors, computeConnectors, edgeCheck, wouldCompleteRound, searchableFields, isOrphanedRound,
 } from "../src/logic.js";
 
 const ALEX = { id: "m-alex", name: "Alex", role: "adult" };
@@ -228,6 +228,60 @@ describe("computeConnectors", () => {
   });
   it("is empty without canvas dimensions", () => {
     expect(computeConnectors([{ color: "#000", points: [{ x: 1, y: 99 }] }], 0, H)).toEqual([]);
+  });
+});
+
+describe("edgeCheck", () => {
+  const H = 300, BAND = 26;
+  const line = (y1, y2, extra = {}) => ({ color: "#000", points: [{ x: 50, y: y1 }, { x: 60, y: y2 }], ...extra });
+  const base = { height: H, band: BAND, hasMarksAbove: false, lastPanel: false };
+
+  it("blocks a panel with nothing running off the bottom", () => {
+    expect(edgeCheck({ ...base, strokes: [line(100, 200)] })).toEqual({ action: "blocked", reason: "no_bottom" });
+  });
+  it("accepts a single stroke with a single point in the bottom band", () => {
+    expect(edgeCheck({ ...base, strokes: [line(100, 200), line(150, H - 1)] })).toEqual({ action: "go" });
+  });
+  it("does not count eraser strokes as a hand-off", () => {
+    expect(edgeCheck({ ...base, strokes: [line(100, 200), line(150, H - 1, { erase: true })] }).action).toBe("blocked");
+  });
+  it("waives the bottom for the panel that completes the round", () => {
+    expect(edgeCheck({ ...base, lastPanel: true, strokes: [line(100, 200)] })).toEqual({ action: "go" });
+  });
+  it("asks when there are marks above and nothing reaches the top", () => {
+    expect(edgeCheck({ ...base, hasMarksAbove: true, strokes: [line(100, H - 1)] })).toEqual({ action: "confirm", kind: "no_top" });
+  });
+  it("one top-to-bottom stroke satisfies both edges", () => {
+    expect(edgeCheck({ ...base, hasMarksAbove: true, strokes: [line(2, H - 2)] })).toEqual({ action: "go" });
+  });
+  it("does not ask about the top on the first panel", () => {
+    expect(edgeCheck({ ...base, strokes: [line(150, H - 1)] })).toEqual({ action: "go" });
+  });
+  it("blocks on the bottom before asking about the top", () => {
+    expect(edgeCheck({ ...base, hasMarksAbove: true, strokes: [line(100, 200)] }).action).toBe("blocked");
+  });
+});
+
+describe("wouldCompleteRound", () => {
+  const r = { id: "r1" };
+  const ho = (member_id, position) => ({ id: `h-${member_id}`, round_id: "r1", member_id, position });
+  const ids = [ALEX.id, CASEY.id, RILEY.id];
+
+  it("is true when everyone else has drawn", () => {
+    expect(wouldCompleteRound(r, [ho(ALEX.id, 0), ho(CASEY.id, 1)], RILEY, ids)).toBe(true);
+  });
+  it("is false while someone else still has to draw", () => {
+    expect(wouldCompleteRound(r, [ho(ALEX.id, 0)], RILEY, ids)).toBe(false);
+  });
+  it("ignores hand-offs from other rounds", () => {
+    expect(wouldCompleteRound(r, [ho(ALEX.id, 0), { ...ho(CASEY.id, 0), round_id: "r2" }], RILEY, ids)).toBe(false);
+  });
+  it("is false for an unknown roster or member", () => {
+    expect(wouldCompleteRound(r, [], RILEY, [])).toBe(false);
+    expect(wouldCompleteRound(r, [], null, ids)).toBe(false);
+  });
+  it("is true for a solo player", () => {
+    expect(wouldCompleteRound(r, [], ALEX, [ALEX.id])).toBe(true);
   });
 });
 
