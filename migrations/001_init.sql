@@ -34,7 +34,7 @@
 --           from rounds — these ticks are intentionally shared, never the drawing.
 
 CREATE TABLE IF NOT EXISTS app_exquisite_corpse__rounds (
-  id              TEXT PRIMARY KEY,
+  id              TEXT NOT NULL PRIMARY KEY,
   title           TEXT NOT NULL,
   theme           TEXT DEFAULT '',
   visibility      TEXT NOT NULL DEFAULT 'everyone',
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS app_exquisite_corpse__rounds (
 );
 
 CREATE TABLE IF NOT EXISTS app_exquisite_corpse__segments (
-  id          TEXT PRIMARY KEY,
+  id          TEXT NOT NULL PRIMARY KEY,
   round_id    TEXT NOT NULL,
   member_id   TEXT NOT NULL,
   member_name TEXT NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS app_exquisite_corpse__segments (
 );
 
 CREATE TABLE IF NOT EXISTS app_exquisite_corpse__handoffs (
-  id          TEXT PRIMARY KEY,
+  id          TEXT NOT NULL PRIMARY KEY,
   round_id    TEXT NOT NULL,
   member_id   TEXT NOT NULL,
   position    INTEGER NOT NULL DEFAULT 0,
